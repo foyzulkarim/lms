@@ -1,0 +1,29 @@
+# Apache Zookeeper Coordination Service
+
+version: '3.8'
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    container_name: lms-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_INIT_LIMIT: 5
+      ZOOKEEPER_SYNC_LIMIT: 2
+      ZOOKEEPER_MAX_CLIENT_CNXNS: 60
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+      - ./messaging/zookeeper/zoo.cfg:/etc/zookeeper/zoo.cfg:ro
+    networks:
+      - lms-internal
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    labels:
+      - "lms.service.type=coordination"
+      - "lms.service.name=zookeeper"
+      - "lms.service.description=Zookeeper coordination service for Kafka"

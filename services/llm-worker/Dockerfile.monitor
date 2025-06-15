@@ -1,0 +1,82 @@
+# Multi-stage Dockerfile for System Monitor
+# Specialized service for system resource monitoring
+
+# ===================
+# BASE MONITOR STAGE
+# ===================
+FROM node:20-alpine AS monitor-base
+
+# Install system dependencies for monitoring
+RUN apk add --no-cache \
+    # Basic utilities
+    curl \
+    wget \
+    # System monitoring tools
+    htop \
+    iotop \
+    procps \
+    sysstat \
+    # Network monitoring
+    net-tools \
+    iftop \
+    # Build tools
+    make \
+    g++ \
+    python3 \
+    linux-headers
+
+# Create app directory
+WORKDIR /app
+
+# Create non-root user
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S sysmonitor -u 1001
+
+# Create necessary directories
+RUN mkdir -p /app/logs && \
+    chown -R sysmonitor:nodejs /app
+
+# ===================
+# SYSTEM MONITOR
+# ===================
+FROM monitor-base AS system-monitor
+
+# Copy package files and install dependencies
+COPY package*.json ./
+RUN npm ci --only=production && npm cache clean --force
+
+# Copy monitor source code
+COPY --chown=sysmonitor:nodejs src/ ./src/
+COPY --chown=sysmonitor:nodejs monitors/ ./monitors/
+COPY --chown=sysmonitor:nodejs config/ ./config/
+
+# Switch to non-root user
+USER sysmonitor
+
+# Expose health check port
+EXPOSE 3010
+
+# Health check
+HEALTHCHECK --interval=60s --timeout=15s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:3010/health || exit 1
+
+# Monitor command
+CMD ["node", "monitors/system-monitor.js"]
+
+# ===================
+# DEVELOPMENT MONITOR
+# ===================
+FROM monitor-base AS development
+
+# Install development dependencies
+COPY package*.json ./
+RUN npm ci && npm cache clean --force
+
+# Copy source code
+COPY --chown=sysmonitor:nodejs . .
+
+# Switch to non-root user
+USER sysmonitor
+
+# Development command
+CMD ["npm", "run", "monitor:dev"]

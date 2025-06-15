@@ -1,0 +1,165 @@
+# LLM Worker Service
+# Background processing service for LLM requests with Ollama integration
+
+version: '3.8'
+
+services:
+  llm-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: ${BUILD_TARGET:-production}
+    image: lms/llm-worker:${VERSION:-latest}
+    container_name: lms-llm-worker
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - PORT=3008
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - LOG_FORMAT=${LOG_FORMAT:-json}
+      
+      # Worker Configuration
+      - WORKER_ID=${LLM_WORKER_ID:-llm-worker-1}
+      - WORKER_CONCURRENCY=${LLM_WORKER_CONCURRENCY:-5}
+      - WORKER_BATCH_SIZE=${LLM_WORKER_BATCH_SIZE:-10}
+      - WORKER_TIMEOUT=${LLM_WORKER_TIMEOUT:-300000}
+      
+      # Database connections
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis-master:6379/9
+      - REDIS_HOST=redis-master
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - REDIS_DB=9
+      
+      # Ollama Configuration
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
+      - OLLAMA_TIMEOUT=${OLLAMA_TIMEOUT:-300000}
+      - OLLAMA_MAX_CONNECTIONS=${OLLAMA_MAX_CONNECTIONS:-10}
+      - OLLAMA_HEALTH_CHECK_INTERVAL=${OLLAMA_HEALTH_CHECK_INTERVAL:-30000}
+      - OLLAMA_MODEL_LOAD_TIMEOUT=${OLLAMA_MODEL_LOAD_TIMEOUT:-120000}
+      - OLLAMA_MAX_RETRIES=${OLLAMA_MAX_RETRIES:-3}
+      - OLLAMA_RETRY_DELAY=${OLLAMA_RETRY_DELAY:-1000}
+      
+      # Queue Configuration
+      - QUEUE_CHAT_NAME=${QUEUE_CHAT_NAME:-llm-chat}
+      - QUEUE_EMBEDDINGS_NAME=${QUEUE_EMBEDDINGS_NAME:-llm-embeddings}
+      - QUEUE_BATCH_NAME=${QUEUE_BATCH_NAME:-llm-batch}
+      - QUEUE_PRIORITY_NAME=${QUEUE_PRIORITY_NAME:-llm-priority}
+      - QUEUE_MAX_ATTEMPTS=${QUEUE_MAX_ATTEMPTS:-3}
+      - QUEUE_DELAY=${QUEUE_DELAY:-1000}
+      - QUEUE_BACKOFF_TYPE=${QUEUE_BACKOFF_TYPE:-exponential}
+      - QUEUE_REMOVE_ON_COMPLETE=${QUEUE_REMOVE_ON_COMPLETE:-100}
+      - QUEUE_REMOVE_ON_FAIL=${QUEUE_REMOVE_ON_FAIL:-50}
+      
+      # Model Configuration
+      - DEFAULT_CHAT_MODEL=${DEFAULT_CHAT_MODEL:-llama2}
+      - DEFAULT_EMBEDDING_MODEL=${DEFAULT_EMBEDDING_MODEL:-llama2}
+      - ALLOWED_MODELS=${ALLOWED_MODELS:-llama2,codellama,mistral,phi,neural-chat}
+      - MODEL_PRELOAD_ENABLED=${MODEL_PRELOAD_ENABLED:-true}
+      - MODEL_PRELOAD_LIST=${MODEL_PRELOAD_LIST:-llama2,mistral}
+      - MODEL_UNLOAD_TIMEOUT=${MODEL_UNLOAD_TIMEOUT:-300000}
+      - MODEL_MEMORY_THRESHOLD=${MODEL_MEMORY_THRESHOLD:-0.8}
+      - MODEL_CACHE_SIZE=${MODEL_CACHE_SIZE:-5}
+      
+      # Fallback & Circuit Breaker Configuration
+      - ENABLE_MODEL_FALLBACK=${ENABLE_MODEL_FALLBACK:-true}
+      - FALLBACK_MODELS=${FALLBACK_MODELS:-llama2,mistral,phi}
+      - ENABLE_CIRCUIT_BREAKER=${ENABLE_CIRCUIT_BREAKER:-true}
+      - CIRCUIT_BREAKER_THRESHOLD=${CIRCUIT_BREAKER_THRESHOLD:-5}
+      - CIRCUIT_BREAKER_TIMEOUT=${CIRCUIT_BREAKER_TIMEOUT:-60000}
+      - CIRCUIT_BREAKER_RESET_TIMEOUT=${CIRCUIT_BREAKER_RESET_TIMEOUT:-300000}
+      
+      # Performance Configuration
+      - ENABLE_BATCH_PROCESSING=${ENABLE_BATCH_PROCESSING:-true}
+      - BATCH_TIMEOUT=${BATCH_TIMEOUT:-5000}
+      - ENABLE_STREAMING=${ENABLE_STREAMING:-true}
+      - ENABLE_GPU_OPTIMIZATION=${ENABLE_GPU_OPTIMIZATION:-true}
+      - MEMORY_LIMIT=${MEMORY_LIMIT:-8192}
+      - GPU_MEMORY_LIMIT=${GPU_MEMORY_LIMIT:-4096}
+      - MAX_CONCURRENT_REQUESTS=${MAX_CONCURRENT_REQUESTS:-10}
+      - REQUEST_QUEUE_SIZE=${REQUEST_QUEUE_SIZE:-100}
+      
+      # Monitoring Configuration
+      - METRICS_ENABLED=${METRICS_ENABLED:-true}
+      - ENABLE_PERFORMANCE_MONITORING=${ENABLE_PERFORMANCE_MONITORING:-true}
+      - PERFORMANCE_SAMPLE_RATE=${PERFORMANCE_SAMPLE_RATE:-0.1}
+      - MEMORY_CLEANUP_INTERVAL=${MEMORY_CLEANUP_INTERVAL:-60000}
+      
+      # Error Handling
+      - ENABLE_DEAD_LETTER_QUEUE=${ENABLE_DEAD_LETTER_QUEUE:-true}
+      - DEAD_LETTER_QUEUE_NAME=${DEAD_LETTER_QUEUE_NAME:-llm-dead-letter}
+      - ERROR_RETRY_ATTEMPTS=${ERROR_RETRY_ATTEMPTS:-3}
+      - ERROR_RETRY_DELAY=${ERROR_RETRY_DELAY:-2000}
+      - ENABLE_ERROR_NOTIFICATIONS=${ENABLE_ERROR_NOTIFICATIONS:-true}
+      
+      # Security Configuration
+      - ENABLE_REQUEST_VALIDATION=${ENABLE_REQUEST_VALIDATION:-true}
+      - MAX_PROMPT_LENGTH=${MAX_PROMPT_LENGTH:-8192}
+      - MAX_RESPONSE_LENGTH=${MAX_RESPONSE_LENGTH:-16384}
+      - ENABLE_CONTENT_FILTERING=${ENABLE_CONTENT_FILTERING:-false}
+      
+      # Event Streaming
+      - KAFKA_BROKERS=${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
+      - KAFKA_CLIENT_ID=llm-worker
+      - KAFKA_GROUP_ID=llm-worker-group
+      
+      # Monitoring
+      - PROMETHEUS_ENDPOINT=http://prometheus:9090
+      - JAEGER_ENDPOINT=http://jaeger:14268/api/traces
+    
+    volumes:
+      # Worker logs
+      - llm_worker_logs:/app/logs
+      # Model cache (shared with Ollama)
+      - ollama_models:/root/.ollama:ro
+      # Configuration files
+      - ./config:/app/config:ro
+    
+    depends_on:
+      - redis-master
+      - ollama
+    
+    networks:
+      - lms-internal
+    
+    restart: unless-stopped
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3008/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+    
+    # Resource limits for production
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
+        reservations:
+          cpus: '1.0'
+          memory: 2G
+    
+    labels:
+      - "lms.service.type=worker"
+      - "lms.service.name=llm-worker"
+      - "lms.service.description=Background LLM processing worker with Ollama integration"
+      - "lms.service.version=${VERSION:-latest}"
+
+# ===================
+# VOLUMES
+# ===================
+volumes:
+  llm_worker_logs:
+    driver: local
+    labels:
+      - "lms.volume.type=logs"
+      - "lms.volume.service=llm-worker"
+      - "lms.volume.description=LLM Worker service logs"
+  
+  ollama_models:
+    driver: local
+    labels:
+      - "lms.volume.type=models"
+      - "lms.volume.service=ollama"
+      - "lms.volume.description=Ollama models and configuration (shared)"

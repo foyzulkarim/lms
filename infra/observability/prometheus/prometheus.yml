@@ -1,0 +1,194 @@
+# Prometheus configuration
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'lms-cluster'
+    environment: 'production'
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+
+# Load rules once and periodically evaluate them according to the global 'evaluation_interval'.
+rule_files:
+  - "rules/*.yml"
+
+# Scrape configuration
+scrape_configs:
+  # Prometheus itself
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+    scrape_interval: 30s
+    metrics_path: /metrics
+
+  # Application Services
+  - job_name: 'api-gateway'
+    static_configs:
+      - targets: ['api-gateway:3000']
+    metrics_path: /metrics
+    scrape_interval: 15s
+    scrape_timeout: 10s
+
+  - job_name: 'auth-service'
+    static_configs:
+      - targets: ['auth-service:3003']
+    metrics_path: /metrics
+    scrape_interval: 15s
+
+  - job_name: 'user-service'
+    static_configs:
+      - targets: ['user-service:3001']
+    metrics_path: /metrics
+    scrape_interval: 15s
+
+  - job_name: 'course-service'
+    static_configs:
+      - targets: ['course-service:3002']
+    metrics_path: /metrics
+    scrape_interval: 15s
+
+  - job_name: 'file-service'
+    static_configs:
+      - targets: ['file-service:3004']
+    metrics_path: /metrics
+    scrape_interval: 15s
+
+  - job_name: 'search-service'
+    static_configs:
+      - targets: ['search-service:3005']
+    metrics_path: /metrics
+    scrape_interval: 15s
+
+  - job_name: 'notification-service'
+    static_configs:
+      - targets: ['notification-service:3006']
+    metrics_path: /metrics
+    scrape_interval: 15s
+
+  - job_name: 'analytics-service'
+    static_configs:
+      - targets: ['analytics-service:3007']
+    metrics_path: /metrics
+    scrape_interval: 15s
+
+  - job_name: 'content-ingestion-service'
+    static_configs:
+      - targets: ['content-ingestion-service:3008']
+    metrics_path: /metrics
+    scrape_interval: 15s
+
+  - job_name: 'llm-gateway'
+    static_configs:
+      - targets: ['llm-gateway:3009']
+    metrics_path: /metrics
+    scrape_interval: 15s
+
+  # Infrastructure Services
+  - job_name: 'postgresql'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+    scrape_interval: 30s
+
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+    scrape_interval: 30s
+
+  - job_name: 'elasticsearch'
+    static_configs:
+      - targets: ['elasticsearch:9200']
+    metrics_path: /_prometheus/metrics
+    scrape_interval: 30s
+
+  - job_name: 'nginx'
+    static_configs:
+      - targets: ['nginx:9113']
+    scrape_interval: 30s
+
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node-exporter:9100']
+    scrape_interval: 30s
+
+  # Kafka Monitoring
+  - job_name: 'kafka'
+    static_configs:
+      - targets: 
+        - 'kafka-1:9308'
+        - 'kafka-2:9308'
+        - 'kafka-3:9308'
+    scrape_interval: 30s
+
+  - job_name: 'zookeeper'
+    static_configs:
+      - targets: ['zookeeper:9141']
+    scrape_interval: 30s
+
+  # MinIO Monitoring
+  - job_name: 'minio'
+    static_configs:
+      - targets: ['minio:9000']
+    metrics_path: /minio/v2/metrics/cluster
+    scrape_interval: 30s
+
+  # ClickHouse Monitoring
+  - job_name: 'clickhouse'
+    static_configs:
+      - targets: ['clickhouse:9363']
+    scrape_interval: 30s
+
+  # MongoDB Monitoring
+  - job_name: 'mongodb'
+    static_configs:
+      - targets: ['mongodb-exporter:9216']
+    scrape_interval: 30s
+
+  # Jaeger Monitoring
+  - job_name: 'jaeger'
+    static_configs:
+      - targets: ['jaeger:14269']
+    metrics_path: /metrics
+    scrape_interval: 30s
+
+  # Grafana Monitoring
+  - job_name: 'grafana'
+    static_configs:
+      - targets: ['grafana:3000']
+    metrics_path: /metrics
+    scrape_interval: 30s
+
+  # Blackbox Exporter for External Monitoring
+  - job_name: 'blackbox'
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+        - http://nginx/health
+        - https://lms.example.com/health
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+  # Service Discovery for Docker Compose (optional)
+  - job_name: 'docker-compose'
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        port: 9323
+    relabel_configs:
+      - source_labels: [__meta_docker_container_label_com_docker_compose_service]
+        target_label: service
+      - source_labels: [__meta_docker_container_name]
+        target_label: container
+      - source_labels: [__meta_docker_container_label_com_docker_compose_project]
+        target_label: project

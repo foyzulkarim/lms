@@ -1,0 +1,552 @@
+# Development environment overrides
+
+version: '3.8'
+
+services:
+  # ===================
+  # APPLICATION SERVICES - DEV OVERRIDES
+  # ===================
+  api-gateway:
+    build:
+      target: development
+    environment:
+      - NODE_ENV=development
+      - LOG_LEVEL=debug
+      - RATE_LIMIT_MAX_REQUESTS=1000
+    volumes:
+      - ../services/api-gateway/src:/app/src:ro
+      - ../services/api-gateway/package.json:/app/package.json:ro
+    command: npm run dev
+    ports:
+      - "3000:3000"
+
+  auth-service:
+    build:
+      target: development
+    environment:
+      - NODE_ENV=development
+      - LOG_LEVEL=debug
+    volumes:
+      - ../services/auth-service/src:/app/src:ro
+      - ../services/auth-service/package.json:/app/package.json:ro
+    command: npm run dev
+    ports:
+      - "3003:3003"
+
+  user-service:
+    build:
+      target: development
+    environment:
+      - NODE_ENV=development
+      - LOG_LEVEL=debug
+    volumes:
+      - ../services/user-service/src:/app/src:ro
+      - ../services/user-service/package.json:/app/package.json:ro
+    command: npm run dev
+    ports:
+      - "3001:3001"
+
+  course-service:
+    build:
+      target: development
+    environment:
+      - NODE_ENV=development
+      - LOG_LEVEL=debug
+      - DEFAULT_COURSE_LANGUAGE=en
+      - MAX_MODULES_PER_COURSE=50
+      - MAX_LESSONS_PER_MODULE=100
+      - COURSE_CACHE_TTL=300
+      - COURSE_LIST_CACHE_TTL=180
+      - ENABLE_COURSE_ANALYTICS=true
+      - ENABLE_DRAFT_AUTOSAVE=true
+      - ENABLE_QUERY_CACHE=false
+    volumes:
+      - ../services/course-service/src:/app/src:ro
+      - ../services/course-service/package.json:/app/package.json:ro
+      - ./storage/course-uploads:/app/uploads
+      - ./storage/course-media:/app/media
+    command: npm run dev
+    ports:
+      - "3002:3002"
+
+  course-analytics-worker:
+    build:
+      target: development
+    environment:
+      - NODE_ENV=development
+      - LOG_LEVEL=debug
+      - WORKER_TYPE=analytics
+      - WORKER_CONCURRENCY=2
+      - ANALYTICS_BATCH_SIZE=50
+      - PROGRESS_CALCULATION_INTERVAL=60000
+    volumes:
+      - ../services/course-service/src:/app/src:ro
+      - ../services/course-service/workers:/app/workers:ro
+      - ./storage/course-analytics:/app/analytics-cache
+    command: npm run worker:analytics
+    ports:
+      - "3012:3012"
+    profiles:
+      - dev-tools
+
+  course-search-indexer:
+    build:
+      target: development
+    environment:
+      - NODE_ENV=development
+      - LOG_LEVEL=debug
+      - WORKER_TYPE=search-indexer
+      - WORKER_CONCURRENCY=1
+      - SEARCH_INDEX_BATCH_SIZE=25
+    volumes:
+      - ../services/course-service/src:/app/src:ro
+      - ../services/course-service/workers:/app/workers:ro
+      - ./storage/course-search:/app/search-cache
+    command: npm run worker:search
+    ports:
+      - "3013:3013"
+    profiles:
+      - dev-tools
+
+  file-service:
+    build:
+      target: development
+    environment:
+      - NODE_ENV=development
+      - LOG_LEVEL=debug
+      - STORAGE_BACKEND=local
+      - LOCAL_STORAGE_PATH=/app/uploads
+      - PROCESSING_ENABLED=true
+      - MAX_CONCURRENT_JOBS=3
+      - IMAGE_PROCESSING_QUALITY=75
+      - VIDEO_PROCESSING_PRESETS=360p,720p
+      - MAX_FILE_SIZE=52428800
+      - VIRUS_SCAN_ENABLED=false
+      - CHUNKED_UPLOAD_ENABLED=true
+      - FILE_VERSIONING_ENABLED=true
+      - AUDIT_LOGGING_ENABLED=true
+    volumes:
+      - ../services/file-service/src:/app/src:ro
+      - ../services/file-service/package.json:/app/package.json:ro
+      - ./storage/files:/app/uploads
+      - ./storage/file-temp:/app/temp
+      - ./storage/file-processing:/app/processing
+    command: npm run dev
+    ports:
+      - "3004:3004"
+
+  file-processing-worker:
+    build:
+      target: development
+    environment:
+      - NODE_ENV=development
+      - LOG_LEVEL=debug
+      - WORKER_TYPE=processing
+      - WORKER_CONCURRENCY=2
+      - IMAGE_PROCESSING_QUALITY=75
+      - VIDEO_PROCESSING_PRESETS=360p,720p
+      - PROCESSING_TIMEOUT=1800
+    volumes:
+      - ../services/file-service/src:/app/src:ro
+      - ../services/file-service/workers:/app/workers:ro
+      - ./storage/files:/app/uploads
+      - ./storage/file-temp:/app/temp
+      - ./storage/file-processing:/app/processing
+    command: npm run worker:processing
+    ports:
+      - "3014:3014"
+    profiles:
+      - dev-tools
+
+  file-cleanup-worker:
+    build:
+      target: development
+    environment:
+      - NODE_ENV=development
+      - LOG_LEVEL=debug
+      - WORKER_TYPE=cleanup
+      - CLEANUP_SCHEDULE=0 */6 * * *
+      - TEMP_FILE_EXPIRY=3600
+      - DRY_RUN_MODE=true
+    volumes:
+      - ../services/file-service/src:/app/src:ro
+      - ../services/file-service/workers:/app/workers:ro
+      - ./storage/files:/app/uploads
+      - ./storage/file-temp:/app/temp
+      - ./storage/file-processing:/app/processing
+    command: npm run worker:cleanup
+    ports:
+      - "3015:3015"
+    profiles:
+      - dev-tools
+
+  analytics-service:
+    build:
+      target: development
+    environment:
+      - NODE_ENV=development
+      - LOG_LEVEL=debug
+      - ENABLE_REAL_TIME_ANALYTICS=true
+      - ENABLE_REPORT_GENERATION=true
+      - DASHBOARD_CACHE_TTL_SECONDS=10
+      - CACHE_TTL_SECONDS=30
+    volumes:
+      - ../services/analytics-service/src:/app/src:ro
+      - ../services/analytics-service/package.json:/app/package.json:ro
+      - ./storage/analytics-reports:/app/reports
+    command: npm run dev
+    ports:
+      - "3007:3007"
+
+  analytics-worker:
+    build:
+      target: development
+    environment:
+      - NODE_ENV=development
+      - LOG_LEVEL=debug
+      - WORKER_CONCURRENCY=2
+      - JOB_TIMEOUT=60000
+    volumes:
+      - ../services/analytics-service/src:/app/src:ro
+      - ../services/analytics-service/package.json:/app/package.json:ro
+      - ./storage/analytics-reports:/app/reports
+    command: npm run worker:dev
+    ports:
+      - "3108:3008"
+
+  content-ingestion-service:
+    build:
+      target: development
+    environment:
+      - NODE_ENV=development
+      - LOG_LEVEL=debug
+      - ENABLE_OCR=true
+      - ENABLE_SPEECH_TO_TEXT=true
+      - CHUNK_SIZE=500
+      - CHUNK_OVERLAP=50
+      - MAX_CONCURRENT_JOBS=3
+      - EXTRACTION_TIMEOUT_MS=180000
+    volumes:
+      - ../services/content-ingestion-service/src:/app/src:ro
+      - ../services/content-ingestion-service/package.json:/app/package.json:ro
+      - ./storage/content-processing:/app/workspace
+      - ./storage/content-temp:/tmp/content-processing
+    command: npm run dev
+    ports:
+      - "3008:3008"
+
+  content-extraction-worker:
+    build:
+      target: development
+    environment:
+      - NODE_ENV=development
+      - LOG_LEVEL=debug
+      - WORKER_TYPE=extraction
+      - WORKER_CONCURRENCY=2
+      - EXTRACTION_TIMEOUT_MS=180000
+    volumes:
+      - ../services/content-ingestion-service/src:/app/src:ro
+      - ../services/content-ingestion-service/workers:/app/workers:ro
+      - ./storage/content-processing:/app/workspace
+      - ./storage/content-temp:/tmp/content-processing
+    command: npm run worker:extraction
+    ports:
+      - "3009:3009"
+    profiles:
+      - dev-tools
+
+  content-embedding-worker:
+    build:
+      target: development
+    environment:
+      - NODE_ENV=development
+      - LOG_LEVEL=debug
+      - WORKER_TYPE=embedding
+      - WORKER_CONCURRENCY=1
+      - EMBEDDING_BATCH_SIZE=5
+    volumes:
+      - ../services/content-ingestion-service/src:/app/src:ro
+      - ../services/content-ingestion-service/workers:/app/workers:ro
+      - ./storage/content-processing:/app/workspace
+    command: npm run worker:embedding
+    ports:
+      - "3010:3010"
+    profiles:
+      - dev-tools
+
+  content-indexing-worker:
+    build:
+      target: development
+    environment:
+      - NODE_ENV=development
+      - LOG_LEVEL=debug
+      - WORKER_TYPE=indexing
+      - WORKER_CONCURRENCY=1
+    volumes:
+      - ../services/content-ingestion-service/src:/app/src:ro
+      - ../services/content-ingestion-service/workers:/app/workers:ro
+      - ./storage/content-processing:/app/workspace
+    command: npm run worker:indexing
+    ports:
+      - "3011:3011"
+    profiles:
+      - dev-tools
+
+  llm-gateway:
+    build:
+      target: development
+    environment:
+      - NODE_ENV=development
+      - LOG_LEVEL=debug
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_TIMEOUT=60000
+      - RATE_LIMIT_MAX_REQUESTS=1000
+      - RATE_LIMIT_BURST_SIZE=50
+      - CACHE_TTL=300
+      - RESPONSE_CACHE_ENABLED=true
+      - ENABLE_RATE_LIMITING=false
+      - ENABLE_CACHING=true
+      - ENABLE_QUEUE_PROCESSING=true
+      - MAX_PROMPT_LENGTH=16384
+      - ALLOWED_MODELS=llama2,codellama,mistral,phi
+    volumes:
+      - ../services/llm-gateway/src:/app/src:ro
+      - ../services/llm-gateway/package.json:/app/package.json:ro
+    command: npm run dev
+    ports:
+      - "3009:3009"
+
+  llm-gateway-worker:
+    build:
+      target: development
+    environment:
+      - NODE_ENV=development
+      - LOG_LEVEL=debug
+      - WORKER_TYPE=llm-processor
+      - WORKER_CONCURRENCY=2
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_TIMEOUT=60000
+      - JOB_TIMEOUT=120000
+    volumes:
+      - ../services/llm-gateway/src:/app/src:ro
+      - ../services/llm-gateway/workers:/app/workers:ro
+    command: npm run worker:llm
+    ports:
+      - "3010:3010"
+    profiles:
+      - dev-tools
+
+  llm-gateway-model-manager:
+    build:
+      target: development
+    environment:
+      - NODE_ENV=development
+      - LOG_LEVEL=debug
+      - MANAGER_TYPE=model-manager
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - AUTO_DOWNLOAD_MODELS=false
+      - MODEL_USAGE_TRACKING=true
+    volumes:
+      - ../services/llm-gateway/src:/app/src:ro
+      - ../services/llm-gateway/workers:/app/workers:ro
+    command: npm run worker:model-manager
+    ports:
+      - "3011:3011"
+    profiles:
+      - dev-tools
+
+  llm-worker:
+    build:
+      target: development
+    environment:
+      - NODE_ENV=development
+      - LOG_LEVEL=debug
+      - WORKER_ID=llm-worker-dev-1
+      - WORKER_CONCURRENCY=3
+      - WORKER_BATCH_SIZE=5
+      - WORKER_TIMEOUT=120000
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_TIMEOUT=60000
+      - OLLAMA_MAX_RETRIES=2
+      - MODEL_PRELOAD_ENABLED=true
+      - MODEL_PRELOAD_LIST=llama2,mistral
+      - ENABLE_MODEL_FALLBACK=true
+      - ENABLE_CIRCUIT_BREAKER=true
+      - CIRCUIT_BREAKER_THRESHOLD=3
+      - METRICS_ENABLED=true
+      - ENABLE_PERFORMANCE_MONITORING=true
+      - PERFORMANCE_SAMPLE_RATE=1.0
+    volumes:
+      - ../services/llm-worker/src:/app/src:ro
+      - ../services/llm-worker/package.json:/app/package.json:ro
+    command: npm run dev
+    ports:
+      - "3008:3008"
+
+  model-manager:
+    build:
+      target: development
+    environment:
+      - NODE_ENV=development
+      - LOG_LEVEL=debug
+      - MANAGER_ID=model-manager-dev-1
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - AUTO_DOWNLOAD_MODELS=false
+      - MODEL_USAGE_TRACKING=true
+      - MODEL_CLEANUP_ENABLED=false
+    volumes:
+      - ../services/llm-worker/src:/app/src:ro
+      - ../services/llm-worker/managers:/app/managers:ro
+    command: npm run manager:dev
+    ports:
+      - "3109:3009"
+    profiles:
+      - dev-tools
+
+  system-monitor:
+    build:
+      target: development
+    environment:
+      - NODE_ENV=development
+      - LOG_LEVEL=debug
+      - MONITOR_ID=system-monitor-dev-1
+      - METRICS_COLLECTION_INTERVAL=10000
+      - ENABLE_ALERTS=false
+    volumes:
+      - ../services/llm-worker/src:/app/src:ro
+      - ../services/llm-worker/monitors:/app/monitors:ro
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+    command: npm run monitor:dev
+    ports:
+      - "3110:3010"
+    profiles:
+      - dev-tools
+
+  # ===================
+  # DATABASES - DEV OVERRIDES
+  # ===================
+  postgresql:
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=lms_dev_db
+      - POSTGRES_USER=lms_dev_user
+
+  redis-master:
+    ports:
+      - "6379:6379"
+
+  # Only run single Kafka broker in development
+  kafka-2:
+    profiles:
+      - production-only
+
+  kafka-3:
+    profiles:
+      - production-only
+
+  elasticsearch:
+    ports:
+      - "9200:9200"
+    environment:
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+
+  clickhouse:
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+
+  mongodb:
+    ports:
+      - "27017:27017"
+
+  # ===================
+  # OBSERVABILITY - DEV OVERRIDES
+  # ===================
+  prometheus:
+    ports:
+      - "9090:9090"
+
+  grafana:
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=true
+      - GF_USERS_DEFAULT_THEME=dark
+
+  jaeger:
+    ports:
+      - "16686:16686"
+      - "14268:14268"
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+      - SPAN_STORAGE_TYPE=memory
+
+  # ===================
+  # STORAGE - DEV OVERRIDES
+  # ===================
+  minio:
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+
+  # ===================
+  # DEVELOPMENT TOOLS
+  # ===================
+  postgres-admin:
+    image: dpage/pgadmin4:7
+    container_name: lms-postgres-admin
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=admin@lms.dev
+      - PGADMIN_DEFAULT_PASSWORD=admin
+      - PGADMIN_CONFIG_SERVER_MODE=False
+    ports:
+      - "5050:80"
+    volumes:
+      - ./postgres/pgadmin-servers.json:/pgadmin4/servers.json:ro
+    depends_on:
+      - postgresql
+    networks:
+      - lms-internal
+    profiles:
+      - dev-tools
+
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: lms-redis-commander
+    environment:
+      - REDIS_HOSTS=local:redis-master:6379:0:${REDIS_PASSWORD}
+    ports:
+      - "8081:8081"
+    depends_on:
+      - redis-master
+    networks:
+      - lms-internal
+    profiles:
+      - dev-tools
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: lms-kafka-ui
+    environment:
+      - KAFKA_CLUSTERS_0_NAME=local
+      - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka-1:9092
+      - KAFKA_CLUSTERS_0_ZOOKEEPER=zookeeper:2181
+    ports:
+      - "8080:8080"
+    depends_on:
+      - kafka-1
+      - zookeeper
+    networks:
+      - lms-internal
+    profiles:
+      - dev-tools
+
+  # ===================
+  # OVERRIDE SETTINGS
+  # ===================
+  backup-service:
+    profiles:
+      - production-only

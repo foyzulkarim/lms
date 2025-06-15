@@ -1,0 +1,407 @@
+# File Service Docker Compose Configuration
+# Handles file upload, storage, processing, and delivery with multi-backend support
+
+version: '3.8'
+
+services:
+  # ===================
+  # MAIN FILE SERVICE
+  # ===================
+  file-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    image: lms/file-service:latest
+    container_name: lms-file-service
+    environment:
+      # Server Configuration
+      - NODE_ENV=${NODE_ENV:-production}
+      - PORT=3004
+      - HOST=0.0.0.0
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - LOG_FORMAT=${LOG_FORMAT:-json}
+      
+      # Database Configuration
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgresql:5432/${POSTGRES_DB}
+      - DB_HOST=postgresql
+      - DB_PORT=5432
+      - DB_NAME=${POSTGRES_DB}
+      - DB_USER=${POSTGRES_USER}
+      - DB_PASSWORD=${POSTGRES_PASSWORD}
+      - DB_POOL_MIN=${FILE_DB_POOL_MIN:-2}
+      - DB_POOL_MAX=${FILE_DB_POOL_MAX:-10}
+      
+      # Redis Configuration
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis-master:6379/4
+      - REDIS_HOST=redis-master
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - REDIS_DB=4
+      
+      # Event Streaming
+      - KAFKA_BROKERS=${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
+      - KAFKA_CLIENT_ID=file-service
+      - KAFKA_GROUP_ID=file-service-group
+      
+      # JWT Configuration
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-24h}
+      
+      # Storage Configuration
+      - STORAGE_BACKEND=${FILE_STORAGE_BACKEND:-minio}
+      - STORAGE_BUCKET=${FILE_STORAGE_BUCKET:-lms-files}
+      - STORAGE_REGION=${FILE_STORAGE_REGION:-us-east-1}
+      
+      # MinIO Configuration
+      - MINIO_ENDPOINT=${MINIO_ENDPOINT:-minio:9000}
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
+      - MINIO_USE_SSL=${MINIO_USE_SSL:-false}
+      - MINIO_BUCKET=${MINIO_BUCKET:-lms-files}
+      
+      # Local Storage Configuration (fallback)
+      - LOCAL_STORAGE_PATH=${LOCAL_STORAGE_PATH:-/app/uploads}
+      - LOCAL_STORAGE_PUBLIC_URL=${LOCAL_STORAGE_PUBLIC_URL:-http://localhost:3004/files}
+      
+      # File Processing Configuration
+      - PROCESSING_ENABLED=${FILE_PROCESSING_ENABLED:-true}
+      - MAX_CONCURRENT_JOBS=${FILE_MAX_CONCURRENT_JOBS:-10}
+      - IMAGE_PROCESSING_QUALITY=${IMAGE_PROCESSING_QUALITY:-85}
+      - VIDEO_PROCESSING_PRESETS=${VIDEO_PROCESSING_PRESETS:-360p,720p,1080p}
+      - THUMBNAIL_GENERATION_ENABLED=${THUMBNAIL_GENERATION_ENABLED:-true}
+      - VIDEO_TRANSCODING_ENABLED=${VIDEO_TRANSCODING_ENABLED:-true}
+      
+      # File Upload Limits
+      - MAX_FILE_SIZE=${MAX_FILE_SIZE:-104857600}
+      - MAX_CHUNK_SIZE=${MAX_CHUNK_SIZE:-1048576}
+      - CHUNKED_UPLOAD_ENABLED=${CHUNKED_UPLOAD_ENABLED:-true}
+      - CHUNKED_UPLOAD_EXPIRY=${CHUNKED_UPLOAD_EXPIRY:-3600}
+      
+      # Security Configuration
+      - VIRUS_SCAN_ENABLED=${VIRUS_SCAN_ENABLED:-false}
+      - ALLOWED_MIME_TYPES=${ALLOWED_MIME_TYPES:-image/*,video/*,application/pdf,text/*,application/msword,application/vnd.openxmlformats-officedocument.*}
+      - BLOCKED_EXTENSIONS=${BLOCKED_EXTENSIONS:-exe,bat,cmd,scr,pif,vbs,js}
+      - CONTENT_TYPE_VALIDATION=${CONTENT_TYPE_VALIDATION:-true}
+      
+      # Rate Limiting
+      - UPLOAD_RATE_LIMIT=${UPLOAD_RATE_LIMIT:-100}
+      - DOWNLOAD_RATE_LIMIT=${DOWNLOAD_RATE_LIMIT:-1000}
+      - RATE_LIMIT_WINDOW=${FILE_RATE_LIMIT_WINDOW:-900000}
+      
+      # CDN Configuration
+      - CDN_ENABLED=${CDN_ENABLED:-false}
+      - CDN_BASE_URL=${CDN_BASE_URL}
+      - CDN_INVALIDATION_ENABLED=${CDN_INVALIDATION_ENABLED:-false}
+      
+      # Cache Configuration
+      - FILE_METADATA_CACHE_TTL=${FILE_METADATA_CACHE_TTL:-3600}
+      - DOWNLOAD_URL_CACHE_TTL=${DOWNLOAD_URL_CACHE_TTL:-1800}
+      - PERMISSION_CACHE_TTL=${PERMISSION_CACHE_TTL:-900}
+      
+      # Feature Flags
+      - FILE_VERSIONING_ENABLED=${FILE_VERSIONING_ENABLED:-true}
+      - AUDIT_LOGGING_ENABLED=${AUDIT_LOGGING_ENABLED:-true}
+      - COMPRESSION_ENABLED=${COMPRESSION_ENABLED:-true}
+      - WATERMARKING_ENABLED=${WATERMARKING_ENABLED:-false}
+      - DUPLICATE_DETECTION_ENABLED=${DUPLICATE_DETECTION_ENABLED:-true}
+      
+      # External Service URLs
+      - AUTH_SERVICE_URL=http://auth-service:3003
+      - USER_SERVICE_URL=http://user-service:3001
+      - COURSE_SERVICE_URL=http://course-service:3002
+      
+      # Monitoring
+      - ENABLE_METRICS=${ENABLE_METRICS:-true}
+      - METRICS_PORT=9464
+      - JAEGER_ENDPOINT=${JAEGER_ENDPOINT:-http://jaeger:14268/api/traces}
+      
+      # Cleanup Configuration
+      - CLEANUP_ENABLED=${FILE_CLEANUP_ENABLED:-true}
+      - CLEANUP_SCHEDULE=${FILE_CLEANUP_SCHEDULE:-0 2 * * *}
+      - TEMP_FILE_EXPIRY=${TEMP_FILE_EXPIRY:-86400}
+      - FAILED_FILE_RETENTION=${FAILED_FILE_RETENTION:-604800}
+    
+    volumes:
+      # Local file storage (if using local backend)
+      - file_uploads:/app/uploads
+      # Temporary processing files
+      - file_temp:/app/temp
+      # File processing workspace
+      - file_processing:/app/processing
+      # Application logs
+      - file_logs:/app/logs
+      # Virus scanning quarantine
+      - file_quarantine:/app/quarantine
+      # Database migration files
+      - ./migrations:/app/migrations:ro
+      # Configuration files
+      - ./config:/app/config:ro
+    
+    depends_on:
+      - postgresql
+      - redis-master
+      - minio
+      - kafka-1
+    
+    networks:
+      - lms-internal
+    
+    restart: unless-stopped
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3004/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+    labels:
+      - "lms.service.type=application"
+      - "lms.service.name=file-service"
+      - "lms.service.description=File upload, storage, and processing service"
+      - "lms.service.port=3004"
+
+  # ===================
+  # FILE PROCESSING WORKER
+  # ===================
+  file-processing-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+      target: processing-worker
+    image: lms/file-processing-worker:latest
+    container_name: lms-file-processing-worker
+    environment:
+      # Worker Configuration
+      - NODE_ENV=${NODE_ENV:-production}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - WORKER_TYPE=processing
+      - WORKER_CONCURRENCY=${FILE_PROCESSING_WORKER_CONCURRENCY:-5}
+      
+      # Database Configuration
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgresql:5432/${POSTGRES_DB}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis-master:6379/4
+      
+      # Storage Configuration
+      - STORAGE_BACKEND=${FILE_STORAGE_BACKEND:-minio}
+      - MINIO_ENDPOINT=${MINIO_ENDPOINT:-minio:9000}
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
+      - MINIO_BUCKET=${MINIO_BUCKET:-lms-files}
+      - LOCAL_STORAGE_PATH=/app/uploads
+      
+      # Processing Configuration
+      - IMAGE_PROCESSING_QUALITY=${IMAGE_PROCESSING_QUALITY:-85}
+      - IMAGE_VARIANTS=${IMAGE_VARIANTS:-thumbnail,small,medium,large}
+      - VIDEO_PROCESSING_PRESETS=${VIDEO_PROCESSING_PRESETS:-360p,720p,1080p}
+      - THUMBNAIL_GENERATION_ENABLED=${THUMBNAIL_GENERATION_ENABLED:-true}
+      - VIDEO_TRANSCODING_ENABLED=${VIDEO_TRANSCODING_ENABLED:-true}
+      - DOCUMENT_PREVIEW_ENABLED=${DOCUMENT_PREVIEW_ENABLED:-true}
+      
+      # Processing Limits
+      - MAX_PROCESSING_TIME=${MAX_PROCESSING_TIME:-1800}
+      - MAX_MEMORY_USAGE=${MAX_PROCESSING_MEMORY:-2048}
+      - PROCESSING_TIMEOUT=${PROCESSING_TIMEOUT:-3600}
+      
+      # Job Configuration
+      - JOB_ATTEMPTS=${FILE_JOB_ATTEMPTS:-3}
+      - JOB_BACKOFF_DELAY=${FILE_JOB_BACKOFF_DELAY:-5000}
+      - JOB_CLEANUP_ENABLED=${JOB_CLEANUP_ENABLED:-true}
+      
+      # External Services
+      - VIRUS_SCAN_ENABLED=${VIRUS_SCAN_ENABLED:-false}
+      - CLAMAV_HOST=${CLAMAV_HOST:-clamav}
+      - CLAMAV_PORT=${CLAMAV_PORT:-3310}
+    
+    volumes:
+      # Shared storage with main service
+      - file_uploads:/app/uploads
+      - file_temp:/app/temp
+      - file_processing:/app/processing
+      - file_logs:/app/logs
+      - file_quarantine:/app/quarantine
+      # FFmpeg and processing tools cache
+      - ffmpeg_cache:/app/ffmpeg-cache
+      - imagemagick_cache:/app/imagemagick-cache
+    
+    depends_on:
+      - postgresql
+      - redis-master
+      - minio
+      - file-service
+    
+    networks:
+      - lms-internal
+    
+    restart: unless-stopped
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3014/health"]
+      interval: 45s
+      timeout: 15s
+      retries: 3
+      start_period: 120s
+    
+    labels:
+      - "lms.service.type=worker"
+      - "lms.service.name=file-processing-worker"
+      - "lms.service.description=File processing and media optimization worker"
+
+  # ===================
+  # FILE CLEANUP WORKER (Optional)
+  # ===================
+  file-cleanup-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+      target: cleanup-worker
+    image: lms/file-cleanup-worker:latest
+    container_name: lms-file-cleanup-worker
+    environment:
+      # Worker Configuration
+      - NODE_ENV=${NODE_ENV:-production}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - WORKER_TYPE=cleanup
+      
+      # Database Configuration
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgresql:5432/${POSTGRES_DB}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis-master:6379/4
+      
+      # Storage Configuration
+      - STORAGE_BACKEND=${FILE_STORAGE_BACKEND:-minio}
+      - MINIO_ENDPOINT=${MINIO_ENDPOINT:-minio:9000}
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
+      - MINIO_BUCKET=${MINIO_BUCKET:-lms-files}
+      - LOCAL_STORAGE_PATH=/app/uploads
+      
+      # Cleanup Configuration
+      - CLEANUP_SCHEDULE=${FILE_CLEANUP_SCHEDULE:-0 2 * * *}
+      - TEMP_FILE_EXPIRY=${TEMP_FILE_EXPIRY:-86400}
+      - FAILED_FILE_RETENTION=${FAILED_FILE_RETENTION:-604800}
+      - DELETED_FILE_RETENTION=${DELETED_FILE_RETENTION:-2592000}
+      - ORPHANED_FILE_CLEANUP=${ORPHANED_FILE_CLEANUP:-true}
+      - CLEANUP_BATCH_SIZE=${CLEANUP_BATCH_SIZE:-100}
+      - DRY_RUN_MODE=${CLEANUP_DRY_RUN_MODE:-false}
+    
+    volumes:
+      - file_uploads:/app/uploads
+      - file_temp:/app/temp
+      - file_processing:/app/processing
+      - file_logs:/app/logs
+      - file_quarantine:/app/quarantine
+    
+    depends_on:
+      - postgresql
+      - redis-master
+      - minio
+      - file-service
+    
+    networks:
+      - lms-internal
+    
+    restart: unless-stopped
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3015/health"]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+      start_period: 60s
+    
+    profiles:
+      - cleanup
+    
+    labels:
+      - "lms.service.type=worker"
+      - "lms.service.name=file-cleanup-worker"
+      - "lms.service.description=File cleanup and maintenance worker"
+
+  # ===================
+  # VIRUS SCANNER (Optional)
+  # ===================
+  clamav:
+    image: clamav/clamav:latest
+    container_name: lms-clamav
+    environment:
+      - CLAMAV_NO_FRESHCLAMD=false
+      - CLAMAV_NO_CLAMD=false
+    volumes:
+      - clamav_db:/var/lib/clamav
+      - file_quarantine:/quarantine
+    networks:
+      - lms-internal
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "clamdscan", "--ping"]
+      interval: 60s
+      timeout: 30s
+      retries: 3
+      start_period: 300s
+    profiles:
+      - virus-scan
+    labels:
+      - "lms.service.type=security"
+      - "lms.service.name=clamav"
+      - "lms.service.description=Virus scanning service"
+
+# ===================
+# VOLUMES
+# ===================
+volumes:
+  file_uploads:
+    driver: local
+    labels:
+      - "lms.volume.type=storage"
+      - "lms.volume.service=file-service"
+      - "lms.volume.description=File uploads and storage"
+  
+  file_temp:
+    driver: local
+    labels:
+      - "lms.volume.type=temporary"
+      - "lms.volume.service=file-service"
+      - "lms.volume.description=Temporary files for processing"
+  
+  file_processing:
+    driver: local
+    labels:
+      - "lms.volume.type=workspace"
+      - "lms.volume.service=file-service"
+      - "lms.volume.description=File processing workspace"
+  
+  file_logs:
+    driver: local
+    labels:
+      - "lms.volume.type=logs"
+      - "lms.volume.service=file-service"
+      - "lms.volume.description=File service application logs"
+  
+  file_quarantine:
+    driver: local
+    labels:
+      - "lms.volume.type=quarantine"
+      - "lms.volume.service=file-service"
+      - "lms.volume.description=Quarantined files from virus scanning"
+  
+  ffmpeg_cache:
+    driver: local
+    labels:
+      - "lms.volume.type=cache"
+      - "lms.volume.service=file-service"
+      - "lms.volume.description=FFmpeg processing cache"
+  
+  imagemagick_cache:
+    driver: local
+    labels:
+      - "lms.volume.type=cache"
+      - "lms.volume.service=file-service"
+      - "lms.volume.description=ImageMagick processing cache"
+  
+  clamav_db:
+    driver: local
+    labels:
+      - "lms.volume.type=database"
+      - "lms.volume.service=clamav"
+      - "lms.volume.description=ClamAV virus definition database"

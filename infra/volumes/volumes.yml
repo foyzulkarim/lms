@@ -1,0 +1,121 @@
+# Volume definitions for LMS infrastructure
+
+version: '3.8'
+
+volumes:
+  # Database volumes
+  postgres_data:
+    name: lms_postgres_data
+    driver: local
+    labels:
+      - "lms.volume.type=database"
+      - "lms.volume.service=postgresql"
+  
+  redis_data:
+    name: lms_redis_data
+    driver: local
+    labels:
+      - "lms.volume.type=cache"
+      - "lms.volume.service=redis-master"
+  
+  redis_replica_1_data:
+    name: lms_redis_replica_1_data
+    driver: local
+    labels:
+      - "lms.volume.type=cache"
+      - "lms.volume.service=redis-replica-1"
+  
+  redis_replica_2_data:
+    name: lms_redis_replica_2_data
+    driver: local
+    labels:
+      - "lms.volume.type=cache"
+      - "lms.volume.service=redis-replica-2"
+  
+  elasticsearch_data:
+    name: lms_elasticsearch_data
+    driver: local
+    labels:
+      - "lms.volume.type=search"
+      - "lms.volume.service=elasticsearch"
+  
+  clickhouse_data:
+    name: lms_clickhouse_data
+    driver: local
+    labels:
+      - "lms.volume.type=analytics"
+      - "lms.volume.service=clickhouse"
+  
+  mongodb_data:
+    name: lms_mongodb_data
+    driver: local
+    labels:
+      - "lms.volume.type=document"
+      - "lms.volume.service=mongodb"
+  
+  # Message streaming volumes
+  kafka_1_data:
+    name: lms_kafka_1_data
+    driver: local
+    labels:
+      - "lms.volume.type=messaging"
+      - "lms.volume.service=kafka-1"
+  
+  kafka_2_data:
+    name: lms_kafka_2_data
+    driver: local
+    labels:
+      - "lms.volume.type=messaging"
+      - "lms.volume.service=kafka-2"
+  
+  kafka_3_data:
+    name: lms_kafka_3_data
+    driver: local
+    labels:
+      - "lms.volume.type=messaging"
+      - "lms.volume.service=kafka-3"
+  
+  zookeeper_data:
+    name: lms_zookeeper_data
+    driver: local
+    labels:
+      - "lms.volume.type=coordination"
+      - "lms.volume.service=zookeeper"
+  
+  # Observability volumes
+  prometheus_data:
+    name: lms_prometheus_data
+    driver: local
+    labels:
+      - "lms.volume.type=monitoring"
+      - "lms.volume.service=prometheus"
+  
+  grafana_data:
+    name: lms_grafana_data
+    driver: local
+    labels:
+      - "lms.volume.type=monitoring"
+      - "lms.volume.service=grafana"
+  
+  jaeger_data:
+    name: lms_jaeger_data
+    driver: local
+    labels:
+      - "lms.volume.type=tracing"
+      - "lms.volume.service=jaeger"
+  
+  # Storage volumes
+  minio_data:
+    name: lms_minio_data
+    driver: local
+    labels:
+      - "lms.volume.type=storage"
+      - "lms.volume.service=minio"
+  
+  # Backup volumes
+  backup_data:
+    name: lms_backup_data
+    driver: local
+    labels:
+      - "lms.volume.type=backup"
+      - "lms.volume.service=backup-service"

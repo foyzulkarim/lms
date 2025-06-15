@@ -1,0 +1,100 @@
+# Multi-stage Dockerfile for Course Service Workers
+# Specialized workers for analytics and search indexing
+
+# ===================
+# BASE WORKER STAGE
+# ===================
+FROM node:20-alpine AS worker-base
+
+# Install system dependencies
+RUN apk add --no-cache \
+    # Basic utilities
+    curl \
+    wget \
+    # Build tools
+    make \
+    g++ \
+    python3
+
+# Create app directory
+WORKDIR /app
+
+# Create non-root user
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S courseuser -u 1001
+
+# Create necessary directories
+RUN mkdir -p /app/analytics-cache /app/search-cache /app/logs && \
+    chown -R courseuser:nodejs /app
+
+# ===================
+# ANALYTICS WORKER
+# ===================
+FROM worker-base AS analytics-worker
+
+# Copy package files and install dependencies
+COPY package*.json ./
+RUN npm ci --only=production && npm cache clean --force
+
+# Copy worker source code
+COPY --chown=courseuser:nodejs src/ ./src/
+COPY --chown=courseuser:nodejs workers/ ./workers/
+COPY --chown=courseuser:nodejs config/ ./config/
+
+# Switch to non-root user
+USER courseuser
+
+# Expose health check port
+EXPOSE 3012
+
+# Health check
+HEALTHCHECK --interval=45s --timeout=15s --start-period=90s --retries=3 \
+    CMD curl -f http://localhost:3012/health || exit 1
+
+# Worker command
+CMD ["node", "workers/analytics-worker.js"]
+
+# ===================
+# SEARCH INDEXER WORKER
+# ===================
+FROM worker-base AS search-indexer
+
+# Copy package files and install dependencies
+COPY package*.json ./
+RUN npm ci --only=production && npm cache clean --force
+
+# Copy worker source code
+COPY --chown=courseuser:nodejs src/ ./src/
+COPY --chown=courseuser:nodejs workers/ ./workers/
+COPY --chown=courseuser:nodejs config/ ./config/
+
+# Switch to non-root user
+USER courseuser
+
+# Expose health check port
+EXPOSE 3013
+
+# Health check
+HEALTHCHECK --interval=45s --timeout=15s --start-period=90s --retries=3 \
+    CMD curl -f http://localhost:3013/health || exit 1
+
+# Worker command
+CMD ["node", "workers/search-indexer.js"]
+
+# ===================
+# DEVELOPMENT WORKER
+# ===================
+FROM worker-base AS development
+
+# Install development dependencies
+COPY package*.json ./
+RUN npm ci && npm cache clean --force
+
+# Copy source code
+COPY --chown=courseuser:nodejs . .
+
+# Switch to non-root user
+USER courseuser
+
+# Development command
+CMD ["npm", "run", "worker:dev"]

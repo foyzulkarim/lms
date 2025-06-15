@@ -1,0 +1,29 @@
+# ClickHouse Analytics Database Service
+
+version: '3.8'
+
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:23.11-alpine
+    container_name: lms-clickhouse
+    environment:
+      - CLICKHOUSE_DB=${CLICKHOUSE_DATABASE:-analytics}
+      - CLICKHOUSE_USER=${CLICKHOUSE_USERNAME:-default}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD}
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./databases/clickhouse/config.xml:/etc/clickhouse-server/config.xml:ro
+      - ./databases/clickhouse/users.xml:/etc/clickhouse-server/users.xml:ro
+      - ./databases/clickhouse/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - lms-internal
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8123/ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    labels:
+      - "lms.service.type=analytics"
+      - "lms.service.name=clickhouse"
+      - "lms.service.description=Analytics and time-series database"

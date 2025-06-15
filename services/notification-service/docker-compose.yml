@@ -1,0 +1,165 @@
+# Notification Service
+# Multi-channel notification delivery service with EMAIL-Dispatcher integration
+
+version: '3.8'
+
+services:
+  notification-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: ${BUILD_TARGET:-production}
+    image: lms/notification-service:${VERSION:-latest}
+    container_name: lms-notification-service
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - PORT=3006
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      
+      # Database connections
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgresql:5432/${POSTGRES_DB}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis-master:6379/6
+      - REDIS_KEY_PREFIX=notification:
+      - REDIS_TTL=3600
+      
+      # Database pool configuration
+      - DB_POOL_MIN=${NOTIFICATION_DB_POOL_MIN:-2}
+      - DB_POOL_MAX=${NOTIFICATION_DB_POOL_MAX:-10}
+      - DB_TIMEOUT=${NOTIFICATION_DB_TIMEOUT:-30000}
+      
+      # EMAIL-Dispatcher Integration
+      - EMAIL_DISPATCHER_URL=${EMAIL_DISPATCHER_URL:-http://email-dispatcher:3020}
+      - EMAIL_DISPATCHER_API_KEY=${EMAIL_DISPATCHER_API_KEY}
+      - EMAIL_DISPATCHER_TIMEOUT=${EMAIL_DISPATCHER_TIMEOUT:-30000}
+      - DEFAULT_FROM_NAME=${DEFAULT_FROM_NAME:-LMS Platform}
+      - DEFAULT_FROM_EMAIL=${DEFAULT_FROM_EMAIL:-noreply@lms.example.com}
+      - DEFAULT_REPLY_TO=${DEFAULT_REPLY_TO:-support@lms.example.com}
+      
+      # Web Push Configuration
+      - VAPID_SUBJECT=${VAPID_SUBJECT:-mailto:admin@lms.example.com}
+      - VAPID_PUBLIC_KEY=${VAPID_PUBLIC_KEY}
+      - VAPID_PRIVATE_KEY=${VAPID_PRIVATE_KEY}
+      - DEFAULT_PUSH_ICON=${DEFAULT_PUSH_ICON:-/icons/notification-icon.png}
+      - DEFAULT_PUSH_BADGE=${DEFAULT_PUSH_BADGE:-/icons/badge-icon.png}
+      - PUSH_TTL=${PUSH_TTL:-86400}
+      
+      # Queue Configuration
+      - QUEUE_CONCURRENCY=${NOTIFICATION_QUEUE_CONCURRENCY:-10}
+      - MAX_RETRY_ATTEMPTS=${NOTIFICATION_MAX_RETRY_ATTEMPTS:-3}
+      - RETRY_DELAY_MS=${NOTIFICATION_RETRY_DELAY_MS:-5000}
+      - BATCH_SIZE=${NOTIFICATION_BATCH_SIZE:-100}
+      - BULK_THROTTLE_MS=${NOTIFICATION_BULK_THROTTLE_MS:-1000}
+      - QUEUE_CLEANUP_INTERVAL=${NOTIFICATION_QUEUE_CLEANUP_INTERVAL:-3600000}
+      
+      # Rate Limiting
+      - EMAIL_RATE_LIMIT=${EMAIL_RATE_LIMIT:-1000}
+      - PUSH_RATE_LIMIT=${PUSH_RATE_LIMIT:-500}
+      - GLOBAL_RATE_LIMIT=${GLOBAL_RATE_LIMIT:-10000}
+      - RATE_LIMIT_WINDOW=${RATE_LIMIT_WINDOW:-3600000}
+      
+      # Template Configuration
+      - TEMPLATE_CACHE_TTL=${TEMPLATE_CACHE_TTL:-3600}
+      - ENABLE_TEMPLATE_VALIDATION=${ENABLE_TEMPLATE_VALIDATION:-true}
+      - MAX_TEMPLATE_SIZE=${MAX_TEMPLATE_SIZE:-1048576}
+      - TEMPLATE_RENDER_TIMEOUT=${TEMPLATE_RENDER_TIMEOUT:-5000}
+      
+      # Analytics Configuration
+      - ENABLE_DELIVERY_TRACKING=${ENABLE_DELIVERY_TRACKING:-true}
+      - ENABLE_OPEN_TRACKING=${ENABLE_OPEN_TRACKING:-true}
+      - ENABLE_CLICK_TRACKING=${ENABLE_CLICK_TRACKING:-true}
+      - ANALYTICS_RETENTION_DAYS=${ANALYTICS_RETENTION_DAYS:-90}
+      
+      # Event Bus Configuration (Kafka)
+      - KAFKA_BROKERS=${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
+      - KAFKA_CLIENT_ID=notification-service
+      - KAFKA_GROUP_ID=notification-service-group
+      - KAFKA_RETRY_ATTEMPTS=${KAFKA_RETRY_ATTEMPTS:-5}
+      - KAFKA_RETRY_DELAY=${KAFKA_RETRY_DELAY:-1000}
+      
+      # Security Configuration
+      - JWT_SECRET=${JWT_SECRET}
+      - API_KEY_HEADER=${API_KEY_HEADER:-x-api-key}
+      - CORS_ORIGIN=${CORS_ORIGIN:-*}
+      - ENABLE_SWAGGER=${ENABLE_SWAGGER:-true}
+      
+      # Service URLs (internal communication)
+      - USER_SERVICE_URL=http://user-service:3001
+      - COURSE_SERVICE_URL=http://course-service:3002
+      - AUTH_SERVICE_URL=http://auth-service:3003
+      
+      # Notification Limits
+      - MAX_RECIPIENTS_PER_NOTIFICATION=${MAX_RECIPIENTS_PER_NOTIFICATION:-10000}
+      - MAX_BULK_SIZE=${MAX_BULK_SIZE:-50000}
+      - MAX_TEMPLATE_VARIABLES=${MAX_TEMPLATE_VARIABLES:-100}
+      - MAX_ATTACHMENT_SIZE=${MAX_ATTACHMENT_SIZE:-10485760}
+      
+      # Quiet Hours Configuration
+      - DEFAULT_QUIET_START=${DEFAULT_QUIET_START:-22:00}
+      - DEFAULT_QUIET_END=${DEFAULT_QUIET_END:-08:00}
+      - DEFAULT_TIMEZONE=${DEFAULT_TIMEZONE:-UTC}
+      
+      # Unsubscribe Configuration
+      - UNSUBSCRIBE_BASE_URL=${UNSUBSCRIBE_BASE_URL:-https://lms.example.com/unsubscribe}
+      - UNSUBSCRIBE_SECRET=${UNSUBSCRIBE_SECRET}
+      
+      # Feature Flags
+      - ENABLE_EMAIL_NOTIFICATIONS=${ENABLE_EMAIL_NOTIFICATIONS:-true}
+      - ENABLE_PUSH_NOTIFICATIONS=${ENABLE_PUSH_NOTIFICATIONS:-true}
+      - ENABLE_BULK_MESSAGING=${ENABLE_BULK_MESSAGING:-true}
+      - ENABLE_SCHEDULED_NOTIFICATIONS=${ENABLE_SCHEDULED_NOTIFICATIONS:-true}
+      - ENABLE_TEMPLATE_CACHING=${ENABLE_TEMPLATE_CACHING:-true}
+      
+      # Monitoring Configuration
+      - METRICS_PORT=${METRICS_PORT:-9090}
+      - HEALTH_CHECK_INTERVAL=${HEALTH_CHECK_INTERVAL:-30000}
+      - ENABLE_PROMETHEUS=${ENABLE_PROMETHEUS:-true}
+      
+      # Monitoring
+      - PROMETHEUS_ENDPOINT=http://prometheus:9090
+      - JAEGER_ENDPOINT=http://jaeger:14268/api/traces
+    
+    volumes:
+      # Service logs
+      - notification_logs:/app/logs
+      # Template storage (if using file-based templates)
+      - notification_templates:/app/templates
+    
+    depends_on:
+      - postgresql
+      - redis-master
+    
+    networks:
+      - lms-internal
+    
+    restart: unless-stopped
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3006/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    
+    labels:
+      - "lms.service.type=application"
+      - "lms.service.name=notification-service"
+      - "lms.service.description=Multi-channel notification delivery service"
+      - "lms.service.version=${VERSION:-latest}"
+
+# ===================
+# VOLUMES
+# ===================
+volumes:
+  notification_logs:
+    driver: local
+    labels:
+      - "lms.volume.type=logs"
+      - "lms.volume.service=notification-service"
+      - "lms.volume.description=Notification service logs"
+  
+  notification_templates:
+    driver: local
+    labels:
+      - "lms.volume.type=templates"
+      - "lms.volume.service=notification-service"
+      - "lms.volume.description=Notification templates storage"
