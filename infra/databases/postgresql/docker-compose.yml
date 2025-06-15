@@ -1,0 +1,30 @@
+# PostgreSQL Database Service
+
+version: '3.8'
+
+services:
+  postgresql:
+    image: postgres:15-alpine
+    container_name: lms-postgresql
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-lms_db}
+      - POSTGRES_USER=${POSTGRES_USER:-lms_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./databases/postgresql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./databases/postgresql/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+    networks:
+      - lms-internal
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-lms_user} -d ${POSTGRES_DB:-lms_db}"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf"]
+    labels:
+      - "lms.service.type=database"
+      - "lms.service.name=postgresql"
+      - "lms.service.description=Primary relational database"

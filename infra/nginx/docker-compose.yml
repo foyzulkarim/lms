@@ -1,0 +1,32 @@
+# NGINX Load Balancer and Reverse Proxy
+
+version: '3.8'
+
+services:
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: lms-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/ssl:/etc/ssl:ro
+      - ./nginx/rate-limits.conf:/etc/nginx/rate-limits.conf:ro
+      - ./nginx/security-headers.conf:/etc/nginx/security-headers.conf:ro
+    depends_on:
+      - api-gateway
+    networks:
+      - lms-network
+      - lms-internal
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    labels:
+      - "lms.service.type=proxy"
+      - "lms.service.name=nginx"
+      - "lms.service.description=Load balancer and reverse proxy"

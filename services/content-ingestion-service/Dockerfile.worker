@@ -1,0 +1,232 @@
+# Multi-stage Dockerfile for Content Ingestion Workers
+# Specialized workers for extraction, embedding, and indexing
+
+# ===================
+# BASE WORKER STAGE
+# ===================
+FROM node:18-alpine AS worker-base
+
+# Install system dependencies for content processing
+RUN apk add --no-cache \
+    # Basic utilities
+    curl \
+    wget \
+    git \
+    # Image processing
+    imagemagick \
+    # PDF processing
+    poppler-utils \
+    # OCR capabilities
+    tesseract-ocr \
+    tesseract-ocr-data-eng \
+    tesseract-ocr-data-fra \
+    tesseract-ocr-data-spa \
+    tesseract-ocr-data-deu \
+    tesseract-ocr-data-chi-sim \
+    tesseract-ocr-data-jpn \
+    # Audio/Video processing
+    ffmpeg \
+    # Python for ML libraries
+    python3 \
+    py3-pip \
+    # Build tools
+    make \
+    g++ \
+    # Additional tools
+    file \
+    unzip \
+    # Language support
+    icu-dev
+
+# Create app directory
+WORKDIR /app
+
+# Create non-root user
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nodejs -u 1001
+
+# Create necessary directories
+RUN mkdir -p /app/workspace /app/models /app/logs /tmp/content-processing && \
+    chown -R nodejs:nodejs /app /tmp/content-processing
+
+# ===================
+# EXTRACTION WORKER
+# ===================
+FROM worker-base AS extraction-worker
+
+# Install Python dependencies for content extraction
+RUN pip3 install --no-cache-dir \
+    # Speech recognition
+    whisper \
+    openai-whisper \
+    # Image processing
+    Pillow \
+    pytesseract \
+    # PDF processing
+    PyPDF2 \
+    pdfplumber \
+    # Document processing
+    python-docx \
+    openpyxl \
+    # Audio processing
+    librosa \
+    soundfile \
+    # Video processing
+    moviepy \
+    # Web scraping
+    beautifulsoup4 \
+    requests \
+    # ML libraries
+    torch \
+    torchvision \
+    torchaudio \
+    transformers \
+    # Utilities
+    numpy \
+    scipy
+
+# Copy package files and install dependencies
+COPY package*.json ./
+RUN npm ci --only=production && npm cache clean --force
+
+# Copy worker source code
+COPY --chown=nodejs:nodejs src/ ./src/
+COPY --chown=nodejs:nodejs workers/ ./workers/
+COPY --chown=nodejs:nodejs config/ ./config/
+
+# Switch to non-root user
+USER nodejs
+
+# Expose health check port
+EXPOSE 3009
+
+# Health check
+HEALTHCHECK --interval=45s --timeout=15s --start-period=120s --retries=3 \
+    CMD curl -f http://localhost:3009/health || exit 1
+
+# Worker command
+CMD ["node", "workers/extraction-worker.js"]
+
+# ===================
+# EMBEDDING WORKER
+# ===================
+FROM worker-base AS embedding-worker
+
+# Install Python dependencies for embedding generation
+RUN pip3 install --no-cache-dir \
+    # ML libraries for embeddings
+    torch \
+    torchvision \
+    torchaudio \
+    transformers \
+    sentence-transformers \
+    # Vector operations
+    numpy \
+    scipy \
+    faiss-cpu \
+    # Utilities
+    scikit-learn \
+    # OpenAI client
+    openai \
+    # Hugging Face
+    datasets
+
+# Copy package files and install dependencies
+COPY package*.json ./
+RUN npm ci --only=production && npm cache clean --force
+
+# Copy worker source code
+COPY --chown=nodejs:nodejs src/ ./src/
+COPY --chown=nodejs:nodejs workers/ ./workers/
+COPY --chown=nodejs:nodejs config/ ./config/
+
+# Switch to non-root user
+USER nodejs
+
+# Expose health check port
+EXPOSE 3010
+
+# Health check
+HEALTHCHECK --interval=45s --timeout=15s --start-period=120s --retries=3 \
+    CMD curl -f http://localhost:3010/health || exit 1
+
+# Worker command
+CMD ["node", "workers/embedding-worker.js"]
+
+# ===================
+# INDEXING WORKER
+# ===================
+FROM worker-base AS indexing-worker
+
+# Install minimal dependencies for indexing
+RUN pip3 install --no-cache-dir \
+    # Basic utilities
+    requests \
+    numpy
+
+# Copy package files and install dependencies
+COPY package*.json ./
+RUN npm ci --only=production && npm cache clean --force
+
+# Copy worker source code
+COPY --chown=nodejs:nodejs src/ ./src/
+COPY --chown=nodejs:nodejs workers/ ./workers/
+COPY --chown=nodejs:nodejs config/ ./config/
+
+# Switch to non-root user
+USER nodejs
+
+# Expose health check port
+EXPOSE 3011
+
+# Health check
+HEALTHCHECK --interval=45s --timeout=15s --start-period=90s --retries=3 \
+    CMD curl -f http://localhost:3011/health || exit 1
+
+# Worker command
+CMD ["node", "workers/indexing-worker.js"]
+
+# ===================
+# DEVELOPMENT WORKER
+# ===================
+FROM worker-base AS development
+
+# Install all Python dependencies for development
+RUN pip3 install --no-cache-dir \
+    whisper \
+    openai-whisper \
+    Pillow \
+    pytesseract \
+    PyPDF2 \
+    pdfplumber \
+    python-docx \
+    openpyxl \
+    librosa \
+    soundfile \
+    moviepy \
+    beautifulsoup4 \
+    requests \
+    torch \
+    torchvision \
+    torchaudio \
+    transformers \
+    sentence-transformers \
+    numpy \
+    scipy \
+    faiss-cpu \
+    scikit-learn \
+    openai \
+    datasets
+
+# Install development dependencies
+COPY package*.json ./
+RUN npm ci && npm cache clean --force
+
+# Copy source code
+COPY --chown=nodejs:nodejs . .
+
+# Switch to non-root user
+USER nodejs
+
+# Development command
+CMD ["npm", "run", "worker:dev"]

@@ -1,0 +1,71 @@
+# Authentication Service
+# This file should be in the same directory as the service code
+
+version: '3.8'
+
+services:
+  auth-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: ${BUILD_TARGET:-production}
+    image: lms/auth-service:${VERSION:-latest}
+    container_name: lms-auth-service
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - PORT=3003
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      
+      # Database connections
+      - POSTGRES_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgresql:5432/${POSTGRES_DB}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis-master:6379/1
+      
+      # JWT Configuration
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_EXPIRY=${JWT_EXPIRY:-3600}
+      - REFRESH_TOKEN_EXPIRY=${REFRESH_TOKEN_EXPIRY:-604800}
+      - JWT_ALGORITHM=${JWT_ALGORITHM:-HS256}
+      
+      # Password security
+      - BCRYPT_ROUNDS=${BCRYPT_ROUNDS:-12}
+      - PASSWORD_MIN_LENGTH=${PASSWORD_MIN_LENGTH:-8}
+      
+      # Session management
+      - SESSION_SECRET=${SESSION_SECRET}
+      - SESSION_COOKIE_SECURE=${SESSION_COOKIE_SECURE:-true}
+      - SESSION_COOKIE_HTTP_ONLY=${SESSION_COOKIE_HTTP_ONLY:-true}
+      - SESSION_COOKIE_MAX_AGE=${SESSION_COOKIE_MAX_AGE:-86400000}
+      
+      # OAuth configuration (if needed)
+      - OAUTH_GOOGLE_CLIENT_ID=${OAUTH_GOOGLE_CLIENT_ID}
+      - OAUTH_GOOGLE_CLIENT_SECRET=${OAUTH_GOOGLE_CLIENT_SECRET}
+      
+      # Rate limiting for auth endpoints
+      - AUTH_RATE_LIMIT_WINDOW=${AUTH_RATE_LIMIT_WINDOW:-900000}
+      - AUTH_RATE_LIMIT_MAX_ATTEMPTS=${AUTH_RATE_LIMIT_MAX_ATTEMPTS:-5}
+      
+      # Monitoring
+      - PROMETHEUS_ENDPOINT=http://prometheus:9090
+      - JAEGER_ENDPOINT=http://jaeger:14268/api/traces
+    
+    depends_on:
+      - postgresql
+      - redis-master
+    
+    networks:
+      - lms-internal
+    
+    restart: unless-stopped
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    
+    labels:
+      - "lms.service.type=application"
+      - "lms.service.name=auth-service"
+      - "lms.service.description=Authentication and authorization service"
+      - "lms.service.version=${VERSION:-latest}"

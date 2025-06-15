@@ -1,0 +1,221 @@
+# Analytics Service
+# Real-time learning analytics, reporting, and business intelligence service
+
+version: '3.8'
+
+services:
+  analytics-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: ${BUILD_TARGET:-production}
+    image: lms/analytics-service:${VERSION:-latest}
+    container_name: lms-analytics-service
+    environment:
+      # Basic configuration
+      - NODE_ENV=${NODE_ENV:-production}
+      - PORT=3007
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      
+      # Database connections
+      - POSTGRES_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgresql:5432/${POSTGRES_DB}
+      - DB_HOST=postgresql
+      - DB_PORT=5432
+      - DB_NAME=${POSTGRES_DB:-lms_db}
+      - DB_USER=${POSTGRES_USER:-lms_user}
+      - DB_PASSWORD=${POSTGRES_PASSWORD}
+      - DB_POOL_MIN=${DB_POOL_MIN:-2}
+      - DB_POOL_MAX=${DB_POOL_MAX:-20}
+      
+      # Redis configuration for caching
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis-master:6379/3
+      - REDIS_HOST=redis-master
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - REDIS_DB=3
+      
+      # Event streaming configuration
+      - KAFKA_BROKERS=${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
+      - KAFKA_CLIENT_ID=analytics-service
+      - KAFKA_GROUP_ID=analytics-group
+      
+      # Event topics to consume
+      - USER_EVENTS_TOPIC=user-events
+      - COURSE_EVENTS_TOPIC=course-events
+      - ASSESSMENT_EVENTS_TOPIC=assessment-events
+      - ANALYTICS_EVENTS_TOPIC=analytics-events
+      
+      # Authentication and security
+      - JWT_SECRET=${JWT_SECRET}
+      - SERVICE_API_KEY=${ANALYTICS_SERVICE_API_KEY}
+      
+      # Report generation configuration
+      - REPORTS_STORAGE_PATH=/app/reports
+      - MAX_REPORT_SIZE_MB=${MAX_REPORT_SIZE_MB:-50}
+      - REPORT_GENERATION_TIMEOUT=${REPORT_GENERATION_TIMEOUT:-300000}
+      
+      # Caching configuration
+      - CACHE_TTL_SECONDS=${CACHE_TTL_SECONDS:-300}
+      - DASHBOARD_CACHE_TTL_SECONDS=${DASHBOARD_CACHE_TTL_SECONDS:-60}
+      - METRICS_CACHE_TTL_SECONDS=${METRICS_CACHE_TTL_SECONDS:-120}
+      
+      # Performance tuning
+      - MAX_CONCURRENT_REPORTS=${MAX_CONCURRENT_REPORTS:-5}
+      - BATCH_SIZE=${BATCH_SIZE:-1000}
+      - AGGREGATION_INTERVAL=${AGGREGATION_INTERVAL:-60000}
+      
+      # External service URLs
+      - USER_SERVICE_URL=http://user-service:3001
+      - COURSE_SERVICE_URL=http://course-service:3002
+      - AUTH_SERVICE_URL=http://auth-service:3003
+      - NOTIFICATION_SERVICE_URL=http://notification-service:3006
+      
+      # Data retention policies
+      - RAW_EVENTS_RETENTION_DAYS=${RAW_EVENTS_RETENTION_DAYS:-90}
+      - AGGREGATED_DATA_RETENTION_DAYS=${AGGREGATED_DATA_RETENTION_DAYS:-365}
+      - REPORT_FILES_RETENTION_DAYS=${REPORT_FILES_RETENTION_DAYS:-30}
+      
+      # Feature flags
+      - ENABLE_REAL_TIME_ANALYTICS=${ENABLE_REAL_TIME_ANALYTICS:-true}
+      - ENABLE_REPORT_GENERATION=${ENABLE_REPORT_GENERATION:-true}
+      - ENABLE_ADVANCED_METRICS=${ENABLE_ADVANCED_METRICS:-true}
+      - ENABLE_PREDICTIVE_ANALYTICS=${ENABLE_PREDICTIVE_ANALYTICS:-false}
+      
+      # Monitoring and observability
+      - PROMETHEUS_ENDPOINT=http://prometheus:9090
+      - JAEGER_ENDPOINT=http://jaeger:14268/api/traces
+      - ENABLE_METRICS=${ENABLE_METRICS:-true}
+      - ENABLE_TRACING=${ENABLE_TRACING:-true}
+      
+      # Email configuration for report delivery
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASSWORD=${SMTP_PASSWORD}
+      - FROM_EMAIL=${FROM_EMAIL:-analytics@lms.example.com}
+      
+      # Timezone and localization
+      - TZ=${TZ:-UTC}
+      - DEFAULT_LOCALE=${DEFAULT_LOCALE:-en-US}
+      - DATE_FORMAT=${DATE_FORMAT:-YYYY-MM-DD}
+      - TIME_FORMAT=${TIME_FORMAT:-HH:mm:ss}
+    
+    volumes:
+      # Report storage volume
+      - analytics_reports:/app/reports
+      # Temporary processing volume
+      - analytics_temp:/tmp/analytics
+    
+    depends_on:
+      - postgresql
+      - redis-master
+      - kafka-1
+    
+    networks:
+      - lms-internal
+    
+    restart: unless-stopped
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3007/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+    labels:
+      - "lms.service.type=application"
+      - "lms.service.name=analytics-service"
+      - "lms.service.description=Real-time learning analytics and reporting service"
+      - "lms.service.version=${VERSION:-latest}"
+      - "lms.service.port=3007"
+      - "lms.service.category=analytics"
+
+  # Analytics Worker - Background job processing
+  analytics-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+      target: ${BUILD_TARGET:-production}
+    image: lms/analytics-worker:${VERSION:-latest}
+    container_name: lms-analytics-worker
+    environment:
+      # Inherit most config from main service
+      - NODE_ENV=${NODE_ENV:-production}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      
+      # Database connections
+      - POSTGRES_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgresql:5432/${POSTGRES_DB}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis-master:6379/4
+      
+      # Kafka configuration
+      - KAFKA_BROKERS=${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
+      - KAFKA_CLIENT_ID=analytics-worker
+      - KAFKA_GROUP_ID=analytics-worker-group
+      
+      # Worker-specific configuration
+      - WORKER_CONCURRENCY=${WORKER_CONCURRENCY:-5}
+      - JOB_TIMEOUT=${JOB_TIMEOUT:-300000}
+      - RETRY_ATTEMPTS=${RETRY_ATTEMPTS:-3}
+      - RETRY_DELAY=${RETRY_DELAY:-5000}
+      
+      # Aggregation job configuration
+      - HOURLY_AGGREGATION_CRON=${HOURLY_AGGREGATION_CRON:-0 * * * *}
+      - DAILY_AGGREGATION_CRON=${DAILY_AGGREGATION_CRON:-0 2 * * *}
+      - WEEKLY_AGGREGATION_CRON=${WEEKLY_AGGREGATION_CRON:-0 3 * * 0}
+      - MONTHLY_AGGREGATION_CRON=${MONTHLY_AGGREGATION_CRON:-0 4 1 * *}
+      
+      # Cleanup job configuration
+      - CLEANUP_CRON=${CLEANUP_CRON:-0 1 * * *}
+      - CLEANUP_BATCH_SIZE=${CLEANUP_BATCH_SIZE:-10000}
+      
+      # Report generation
+      - REPORTS_STORAGE_PATH=/app/reports
+      - MAX_REPORT_SIZE_MB=${MAX_REPORT_SIZE_MB:-50}
+    
+    volumes:
+      - analytics_reports:/app/reports
+      - analytics_temp:/tmp/analytics
+    
+    depends_on:
+      - analytics-service
+      - postgresql
+      - redis-master
+      - kafka-1
+    
+    networks:
+      - lms-internal
+    
+    restart: unless-stopped
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3008/health"]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+      start_period: 120s
+    
+    labels:
+      - "lms.service.type=worker"
+      - "lms.service.name=analytics-worker"
+      - "lms.service.description=Background analytics processing worker"
+      - "lms.service.version=${VERSION:-latest}"
+      - "lms.service.category=analytics"
+
+# Service-specific volumes
+volumes:
+  analytics_reports:
+    name: lms_analytics_reports
+    driver: local
+    labels:
+      - "lms.volume.type=reports"
+      - "lms.volume.service=analytics-service"
+      - "lms.volume.description=Generated analytics reports storage"
+  
+  analytics_temp:
+    name: lms_analytics_temp
+    driver: local
+    labels:
+      - "lms.volume.type=temporary"
+      - "lms.volume.service=analytics-service"
+      - "lms.volume.description=Temporary analytics processing files"

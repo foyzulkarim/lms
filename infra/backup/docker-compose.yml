@@ -1,0 +1,38 @@
+# Backup and Recovery Service
+
+version: '3.8'
+
+services:
+  backup-service:
+    image: alpine:latest
+    container_name: lms-backup-service
+    volumes:
+      - ./backup/scripts:/scripts:ro
+      - backup_data:/backups
+      - postgres_data:/postgres_data:ro
+      - mongodb_data:/mongodb_data:ro
+      - elasticsearch_data:/elasticsearch_data:ro
+      - redis_data:/redis_data:ro
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-lms_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB:-lms_db}
+      - MONGODB_USERNAME=${MONGODB_USERNAME:-mongo_user}
+      - MONGODB_PASSWORD=${MONGODB_PASSWORD}
+      - MONGODB_DATABASE=${MONGODB_DATABASE:-content_db}
+      - BACKUP_RETENTION_DAYS=30
+      - BACKUP_SCHEDULE=0 2 * * *
+    depends_on:
+      - postgresql
+      - mongodb
+      - elasticsearch
+      - redis-master
+    networks:
+      - lms-internal
+    restart: unless-stopped
+    command: crond -f
+    entrypoint: ["/scripts/backup-entrypoint.sh"]
+    labels:
+      - "lms.service.type=utility"
+      - "lms.service.name=backup-service"
+      - "lms.service.description=Automated backup and recovery service"

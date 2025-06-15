@@ -1,0 +1,68 @@
+# API Gateway Service
+# This file should be in the same directory as the service code
+
+version: '3.8'
+
+services:
+  api-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: ${BUILD_TARGET:-production}
+    image: lms/api-gateway:${VERSION:-latest}
+    container_name: lms-api-gateway
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - PORT=3000
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      
+      # Database connections
+      - POSTGRES_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgresql:5432/${POSTGRES_DB}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis-master:6379/0
+      
+      # Authentication
+      - JWT_SECRET=${JWT_SECRET}
+      
+      # Service URLs (internal communication)
+      - USER_SERVICE_URL=http://user-service:3001
+      - COURSE_SERVICE_URL=http://course-service:3002
+      - AUTH_SERVICE_URL=http://auth-service:3003
+      - FILE_SERVICE_URL=http://file-service:3004
+      - SEARCH_SERVICE_URL=http://search-service:3005
+      - NOTIFICATION_SERVICE_URL=http://notification-service:3006
+      - ANALYTICS_SERVICE_URL=http://analytics-service:3007
+      
+      # Rate limiting
+      - RATE_LIMIT_WINDOW=${RATE_LIMIT_WINDOW:-60000}
+      - RATE_LIMIT_MAX_REQUESTS=${RATE_LIMIT_MAX_REQUESTS:-100}
+      
+      # Circuit breaker
+      - CIRCUIT_BREAKER_THRESHOLD=${CIRCUIT_BREAKER_THRESHOLD:-5}
+      - CIRCUIT_BREAKER_TIMEOUT=${CIRCUIT_BREAKER_TIMEOUT:-30000}
+      
+      # Monitoring
+      - PROMETHEUS_ENDPOINT=http://prometheus:9090
+      - JAEGER_ENDPOINT=http://jaeger:14268/api/traces
+    
+    depends_on:
+      - postgresql
+      - redis-master
+    
+    networks:
+      - lms-network
+      - lms-internal
+    
+    restart: unless-stopped
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    
+    labels:
+      - "lms.service.type=application"
+      - "lms.service.name=api-gateway"
+      - "lms.service.description=Main API gateway and request router"
+      - "lms.service.version=${VERSION:-latest}"

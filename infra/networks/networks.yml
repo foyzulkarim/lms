@@ -1,0 +1,25 @@
+# Network definitions for LMS infrastructure
+
+version: '3.8'
+
+networks:
+  lms-network:
+    name: lms-network
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+    labels:
+      - "lms.network.type=public"
+      - "lms.network.description=Public network for external access"
+  
+  lms-internal:
+    name: lms-internal
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16
+    labels:
+      - "lms.network.type=internal"
+      - "lms.network.description=Internal network for service communication"

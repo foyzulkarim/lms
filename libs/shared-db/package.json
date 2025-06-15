@@ -1,0 +1,5 @@
+{
+  "name": "@lms/shared-db",
+  "version": "1.0.0",
+  "description": "Shared database utilities"
+}

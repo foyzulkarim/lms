@@ -1,0 +1,109 @@
+# Search Service - Development Override
+# This file provides development-specific configurations for the Search Service
+
+version: '3.8'
+
+services:
+  search-service:
+    build:
+      target: development
+    environment:
+      # Development environment
+      - NODE_ENV=development
+      - LOG_LEVEL=debug
+      
+      # Development database configuration
+      - DB_POOL_MIN=1
+      - DB_POOL_MAX=5
+      
+      # Development search configuration
+      - DEFAULT_SEARCH_LIMIT=10
+      - MAX_SEARCH_LIMIT=50
+      - SEARCH_TIMEOUT_MS=10000
+      - MIN_QUERY_LENGTH=1
+      
+      # Development caching (shorter TTL for testing)
+      - SEARCH_CACHE_TTL=60
+      - SUGGESTIONS_CACHE_TTL=300
+      - RAG_CACHE_TTL=180
+      - VECTOR_CACHE_TTL=60
+      
+      # Development rate limiting (more lenient)
+      - RATE_LIMIT_MAX=1000
+      - RATE_LIMIT_WINDOW=60000
+      - RAG_RATE_LIMIT_MAX=100
+      - RAG_RATE_LIMIT_WINDOW=60000
+      
+      # Development LLM configuration
+      - RAG_MAX_CONTEXTS=5
+      - RAG_CONTEXT_MAX_TOKENS=2000
+      - RAG_MAX_TOKENS=500
+      
+      # Development indexing configuration
+      - INDEX_BATCH_SIZE=10
+      - INDEX_CONCURRENCY=2
+      - INDEX_RETRY_ATTEMPTS=1
+      - INDEX_RETRY_DELAY=1000
+      
+      # Development analytics
+      - ANALYTICS_BATCH_SIZE=10
+      - ANALYTICS_FLUSH_INTERVAL=10000
+      
+      # Development health checks
+      - HEALTH_CHECK_TIMEOUT=2000
+      - HEALTH_CHECK_INTERVAL=15000
+      
+      # Development feature flags (enable all for testing)
+      - ENABLE_RAG_SEARCH=true
+      - ENABLE_SEMANTIC_SEARCH=true
+      - ENABLE_HYBRID_SEARCH=true
+      - ENABLE_AUTOCOMPLETE=true
+      - ENABLE_FACETED_SEARCH=true
+      - ENABLE_QUERY_SUGGESTIONS=true
+      
+      # Development monitoring
+      - ENABLE_METRICS=true
+      - ENABLE_REQUEST_LOGGING=true
+      - ENABLE_QUERY_LOGGING=true
+      
+      # Development Elasticsearch (if using local instance)
+      - ELASTICSEARCH_TIMEOUT=10000
+      - ELASTICSEARCH_MAX_RESULT_WINDOW=1000
+    
+    volumes:
+      # Hot reloading for development
+      - ./src:/app/src:ro
+      - ./package.json:/app/package.json:ro
+      - ./tsconfig.json:/app/tsconfig.json:ro
+      - ./knexfile.js:/app/knexfile.js:ro
+      - ./migrations:/app/migrations:ro
+      # Development logs
+      - ./logs:/app/logs
+      # Development indices
+      - ./indices:/app/indices
+    
+    ports:
+      # Expose service port for development
+      - "3005:3005"
+      # Expose metrics port for development
+      - "9098:9090"
+    
+    # Development resource limits (lower)
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    
+    # Faster health checks for development
+    healthcheck:
+      interval: 15s
+      timeout: 5s
+      retries: 2
+      start_period: 20s
+    
+    # Development command (with hot reloading)
+    command: npm run dev

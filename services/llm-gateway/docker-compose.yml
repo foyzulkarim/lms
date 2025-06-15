@@ -1,0 +1,356 @@
+# LLM Gateway Service Docker Compose Configuration
+# Centralized LLM request management with caching, rate limiting, and queue processing
+
+version: '3.8'
+
+services:
+  # ===================
+  # MAIN LLM GATEWAY SERVICE
+  # ===================
+  llm-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    image: lms/llm-gateway:latest
+    container_name: lms-llm-gateway
+    environment:
+      # Server Configuration
+      - NODE_ENV=${NODE_ENV:-production}
+      - PORT=3009
+      - HOST=0.0.0.0
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - LOG_FORMAT=${LOG_FORMAT:-json}
+      - REQUEST_TIMEOUT=${LLM_REQUEST_TIMEOUT:-300000}
+      - KEEP_ALIVE_TIMEOUT=${LLM_KEEP_ALIVE_TIMEOUT:-65000}
+      - BODY_LIMIT=${LLM_BODY_LIMIT:-10485760}
+      
+      # Database Configuration
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgresql:5432/${POSTGRES_DB}
+      - DB_HOST=postgresql
+      - DB_PORT=5432
+      - DB_NAME=${POSTGRES_DB}
+      - DB_USER=${POSTGRES_USER}
+      - DB_PASSWORD=${POSTGRES_PASSWORD}
+      - DB_POOL_MIN=${LLM_DB_POOL_MIN:-2}
+      - DB_POOL_MAX=${LLM_DB_POOL_MAX:-10}
+      
+      # Redis Configuration
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis-master:6379/8
+      - REDIS_HOST=redis-master
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - REDIS_DB=8
+      
+      # Event Streaming
+      - KAFKA_BROKERS=${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
+      - KAFKA_CLIENT_ID=llm-gateway
+      - KAFKA_GROUP_ID=llm-gateway-group
+      
+      # JWT Configuration
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-24h}
+      
+      # Ollama Configuration
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
+      - OLLAMA_TIMEOUT=${OLLAMA_TIMEOUT:-300000}
+      - OLLAMA_MAX_RETRIES=${OLLAMA_MAX_RETRIES:-3}
+      - OLLAMA_RETRY_DELAY=${OLLAMA_RETRY_DELAY:-1000}
+      
+      # Rate Limiting Configuration
+      - RATE_LIMIT_WINDOW=${LLM_RATE_LIMIT_WINDOW:-3600}
+      - RATE_LIMIT_MAX_REQUESTS=${LLM_RATE_LIMIT_MAX_REQUESTS:-100}
+      - RATE_LIMIT_MAX_REQUESTS_PER_MODEL=${LLM_RATE_LIMIT_MAX_REQUESTS_PER_MODEL:-50}
+      - RATE_LIMIT_BURST_SIZE=${LLM_RATE_LIMIT_BURST_SIZE:-10}
+      - ENABLE_RATE_LIMITING=${ENABLE_LLM_RATE_LIMITING:-true}
+      
+      # Queue Configuration
+      - QUEUE_CONCURRENCY=${LLM_QUEUE_CONCURRENCY:-5}
+      - QUEUE_MAX_ATTEMPTS=${LLM_QUEUE_MAX_ATTEMPTS:-3}
+      - QUEUE_DELAY=${LLM_QUEUE_DELAY:-1000}
+      - QUEUE_BACKOFF_TYPE=${LLM_QUEUE_BACKOFF_TYPE:-exponential}
+      - QUEUE_REMOVE_ON_COMPLETE=${LLM_QUEUE_REMOVE_ON_COMPLETE:-100}
+      - QUEUE_REMOVE_ON_FAIL=${LLM_QUEUE_REMOVE_ON_FAIL:-50}
+      - ENABLE_QUEUE_PROCESSING=${ENABLE_LLM_QUEUE_PROCESSING:-true}
+      
+      # Cache Configuration
+      - CACHE_TTL=${LLM_CACHE_TTL:-3600}
+      - CACHE_MAX_SIZE=${LLM_CACHE_MAX_SIZE:-1000}
+      - RESPONSE_CACHE_ENABLED=${LLM_RESPONSE_CACHE_ENABLED:-true}
+      - MODEL_CACHE_ENABLED=${LLM_MODEL_CACHE_ENABLED:-true}
+      - ENABLE_CACHING=${ENABLE_LLM_CACHING:-true}
+      
+      # Security Configuration
+      - MAX_PROMPT_LENGTH=${LLM_MAX_PROMPT_LENGTH:-8192}
+      - MAX_RESPONSE_LENGTH=${LLM_MAX_RESPONSE_LENGTH:-16384}
+      - ALLOWED_MODELS=${LLM_ALLOWED_MODELS:-llama2,codellama,mistral,phi}
+      - BLOCKED_PATTERNS=${LLM_BLOCKED_PATTERNS:-}
+      - ENABLE_CONTENT_MODERATION=${ENABLE_LLM_CONTENT_MODERATION:-false}
+      
+      # Feature Flags
+      - ENABLE_MODEL_FALLBACK=${ENABLE_LLM_MODEL_FALLBACK:-true}
+      - ENABLE_STREAMING=${ENABLE_LLM_STREAMING:-true}
+      - ENABLE_BATCH_PROCESSING=${ENABLE_LLM_BATCH_PROCESSING:-true}
+      - ENABLE_PRIORITY_QUEUES=${ENABLE_LLM_PRIORITY_QUEUES:-true}
+      
+      # External Service URLs
+      - AUTH_SERVICE_URL=http://auth-service:3003
+      - USER_SERVICE_URL=http://user-service:3001
+      - ANALYTICS_SERVICE_URL=http://analytics-service:3007
+      
+      # CORS Configuration
+      - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost:3000}
+      - CORS_CREDENTIALS=${CORS_CREDENTIALS:-true}
+      
+      # Monitoring Configuration
+      - METRICS_ENABLED=${LLM_METRICS_ENABLED:-true}
+      - METRICS_PORT=9464
+      - JAEGER_ENDPOINT=${JAEGER_ENDPOINT:-http://jaeger:14268/api/traces}
+      - ENABLE_AUDIT_LOGGING=${ENABLE_LLM_AUDIT_LOGGING:-true}
+      
+      # Performance Tuning
+      - MAX_CONCURRENT_REQUESTS=${LLM_MAX_CONCURRENT_REQUESTS:-1000}
+      - CONNECTION_POOL_SIZE=${LLM_CONNECTION_POOL_SIZE:-100}
+      - CIRCUIT_BREAKER_ENABLED=${LLM_CIRCUIT_BREAKER_ENABLED:-true}
+      - CIRCUIT_BREAKER_THRESHOLD=${LLM_CIRCUIT_BREAKER_THRESHOLD:-5}
+      - CIRCUIT_BREAKER_TIMEOUT=${LLM_CIRCUIT_BREAKER_TIMEOUT:-30000}
+    
+    volumes:
+      # Application logs
+      - llm_gateway_logs:/app/logs
+      # Configuration files
+      - ./config:/app/config:ro
+      # Database migration files
+      - ./migrations:/app/migrations:ro
+    
+    depends_on:
+      - postgresql
+      - redis-master
+      - kafka-1
+      - ollama
+    
+    networks:
+      - lms-internal
+    
+    restart: unless-stopped
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3009/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+    labels:
+      - "lms.service.type=application"
+      - "lms.service.name=llm-gateway"
+      - "lms.service.description=LLM request management and processing gateway"
+      - "lms.service.port=3009"
+
+  # ===================
+  # LLM WORKER (Queue Processor)
+  # ===================
+  llm-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+      target: llm-worker
+    image: lms/llm-worker:latest
+    container_name: lms-llm-worker
+    environment:
+      # Worker Configuration
+      - NODE_ENV=${NODE_ENV:-production}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - WORKER_TYPE=llm-processor
+      - WORKER_CONCURRENCY=${LLM_WORKER_CONCURRENCY:-3}
+      
+      # Database Configuration
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgresql:5432/${POSTGRES_DB}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis-master:6379/8
+      
+      # Ollama Configuration
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
+      - OLLAMA_TIMEOUT=${OLLAMA_TIMEOUT:-300000}
+      - OLLAMA_MAX_RETRIES=${OLLAMA_MAX_RETRIES:-3}
+      - OLLAMA_RETRY_DELAY=${OLLAMA_RETRY_DELAY:-1000}
+      
+      # Queue Configuration
+      - QUEUE_CONCURRENCY=${LLM_WORKER_QUEUE_CONCURRENCY:-5}
+      - QUEUE_MAX_ATTEMPTS=${LLM_QUEUE_MAX_ATTEMPTS:-3}
+      - QUEUE_BACKOFF_TYPE=${LLM_QUEUE_BACKOFF_TYPE:-exponential}
+      - JOB_TIMEOUT=${LLM_JOB_TIMEOUT:-300000}
+      
+      # Processing Configuration
+      - MAX_PROMPT_LENGTH=${LLM_MAX_PROMPT_LENGTH:-8192}
+      - MAX_RESPONSE_LENGTH=${LLM_MAX_RESPONSE_LENGTH:-16384}
+      - ALLOWED_MODELS=${LLM_ALLOWED_MODELS:-llama2,codellama,mistral,phi}
+      - ENABLE_MODEL_FALLBACK=${ENABLE_LLM_MODEL_FALLBACK:-true}
+      
+      # Event Streaming
+      - KAFKA_BROKERS=${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
+      - KAFKA_CLIENT_ID=llm-worker
+      - KAFKA_GROUP_ID=llm-worker-group
+      
+      # Monitoring
+      - METRICS_ENABLED=${LLM_METRICS_ENABLED:-true}
+      - JAEGER_ENDPOINT=${JAEGER_ENDPOINT:-http://jaeger:14268/api/traces}
+    
+    volumes:
+      - llm_gateway_logs:/app/logs
+    
+    depends_on:
+      - postgresql
+      - redis-master
+      - kafka-1
+      - ollama
+      - llm-gateway
+    
+    networks:
+      - lms-internal
+    
+    restart: unless-stopped
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3010/health"]
+      interval: 45s
+      timeout: 15s
+      retries: 3
+      start_period: 90s
+    
+    labels:
+      - "lms.service.type=worker"
+      - "lms.service.name=llm-worker"
+      - "lms.service.description=LLM queue processing worker"
+
+  # ===================
+  # OLLAMA SERVICE
+  # ===================
+  ollama:
+    image: ollama/ollama:latest
+    container_name: lms-ollama
+    environment:
+      - OLLAMA_ORIGINS=${OLLAMA_ORIGINS:-*}
+      - OLLAMA_HOST=${OLLAMA_HOST:-0.0.0.0}
+      - OLLAMA_PORT=${OLLAMA_PORT:-11434}
+      - OLLAMA_MODELS=${OLLAMA_MODELS:-llama2,codellama,mistral}
+      - OLLAMA_KEEP_ALIVE=${OLLAMA_KEEP_ALIVE:-5m}
+      - OLLAMA_MAX_LOADED_MODELS=${OLLAMA_MAX_LOADED_MODELS:-3}
+      - OLLAMA_MAX_QUEUE=${OLLAMA_MAX_QUEUE:-512}
+      - OLLAMA_NUM_PARALLEL=${OLLAMA_NUM_PARALLEL:-4}
+      - OLLAMA_FLASH_ATTENTION=${OLLAMA_FLASH_ATTENTION:-false}
+    
+    volumes:
+      # Ollama models and configuration
+      - ollama_models:/root/.ollama
+      # Model cache for faster loading
+      - ollama_cache:/tmp/ollama
+    
+    networks:
+      - lms-internal
+    
+    restart: unless-stopped
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 60s
+      timeout: 30s
+      retries: 3
+      start_period: 120s
+    
+    # GPU support (uncomment if GPU available)
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    
+    labels:
+      - "lms.service.type=llm-backend"
+      - "lms.service.name=ollama"
+      - "lms.service.description=Local LLM execution engine"
+
+  # ===================
+  # MODEL MANAGER (Optional)
+  # ===================
+  model-manager:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+      target: model-manager
+    image: lms/model-manager:latest
+    container_name: lms-model-manager
+    environment:
+      # Manager Configuration
+      - NODE_ENV=${NODE_ENV:-production}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - MANAGER_TYPE=model-manager
+      
+      # Ollama Configuration
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
+      - OLLAMA_TIMEOUT=${OLLAMA_TIMEOUT:-300000}
+      
+      # Model Configuration
+      - AUTO_DOWNLOAD_MODELS=${AUTO_DOWNLOAD_MODELS:-true}
+      - MODEL_UPDATE_SCHEDULE=${MODEL_UPDATE_SCHEDULE:-0 2 * * 0}
+      - MODEL_CLEANUP_ENABLED=${MODEL_CLEANUP_ENABLED:-true}
+      - MODEL_USAGE_TRACKING=${MODEL_USAGE_TRACKING:-true}
+      
+      # Database Configuration
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgresql:5432/${POSTGRES_DB}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis-master:6379/8
+    
+    volumes:
+      - ollama_models:/root/.ollama:ro
+      - llm_gateway_logs:/app/logs
+    
+    depends_on:
+      - postgresql
+      - redis-master
+      - ollama
+    
+    networks:
+      - lms-internal
+    
+    restart: unless-stopped
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3011/health"]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+      start_period: 60s
+    
+    profiles:
+      - model-management
+    
+    labels:
+      - "lms.service.type=manager"
+      - "lms.service.name=model-manager"
+      - "lms.service.description=LLM model lifecycle management"
+
+# ===================
+# VOLUMES
+# ===================
+volumes:
+  ollama_models:
+    driver: local
+    labels:
+      - "lms.volume.type=models"
+      - "lms.volume.service=ollama"
+      - "lms.volume.description=Ollama models and configuration"
+  
+  ollama_cache:
+    driver: local
+    labels:
+      - "lms.volume.type=cache"
+      - "lms.volume.service=ollama"
+      - "lms.volume.description=Ollama model cache for faster loading"
+  
+  llm_gateway_logs:
+    driver: local
+    labels:
+      - "lms.volume.type=logs"
+      - "lms.volume.service=llm-gateway"
+      - "lms.volume.description=LLM Gateway service logs"

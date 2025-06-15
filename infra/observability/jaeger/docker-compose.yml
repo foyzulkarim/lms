@@ -1,0 +1,33 @@
+# Jaeger Distributed Tracing Service
+
+version: '3.8'
+
+services:
+  jaeger:
+    image: jaegertracing/all-in-one:1.51
+    container_name: lms-jaeger
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+      - SPAN_STORAGE_TYPE=elasticsearch
+      - ES_SERVER_URLS=http://elasticsearch:9200
+      - ES_USERNAME=${ELASTICSEARCH_USERNAME:-elastic}
+      - ES_PASSWORD=${ELASTICSEARCH_PASSWORD}
+      - ES_INDEX_PREFIX=jaeger
+      - COLLECTOR_ZIPKIN_HOST_PORT=:9411
+    volumes:
+      - jaeger_data:/tmp
+      - ./observability/jaeger/jaeger.yml:/etc/jaeger/jaeger.yml:ro
+    depends_on:
+      - elasticsearch
+    networks:
+      - lms-internal
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:14269/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    labels:
+      - "lms.service.type=tracing"
+      - "lms.service.name=jaeger"
+      - "lms.service.description=Distributed tracing and monitoring"

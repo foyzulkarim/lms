@@ -1,0 +1,669 @@
+# Main docker-compose configuration - Modular Infrastructure
+# This file orchestrates all infrastructure components through includes
+
+version: '3.8'
+
+# Include all modular infrastructure components
+include:
+  # Core Infrastructure
+  - ./networks/networks.yml
+  - ./volumes/volumes.yml
+  
+  # Load Balancer & Proxy
+  - ./nginx/docker-compose.yml
+  
+  # Application Services (from actual service directories)
+  - ../services/api-gateway/docker-compose.yml
+  - ../services/auth-service/docker-compose.yml
+  - ../services/user-service/docker-compose.yml
+  - ../services/course-service/docker-compose.yml
+  - ../services/file-service/docker-compose.yml
+  - ../services/search-service/docker-compose.yml
+  - ../services/notification-service/docker-compose.yml
+  - ../services/analytics-service/docker-compose.yml
+  - ../services/content-ingestion-service/docker-compose.yml
+  - ../services/llm-gateway/docker-compose.yml
+  - ../services/llm-worker/docker-compose.yml
+  
+  # Databases
+  - ./databases/postgresql/docker-compose.yml
+  - ./databases/redis/docker-compose.yml
+  - ./databases/elasticsearch/docker-compose.yml
+  - ./databases/clickhouse/docker-compose.yml
+  - ./databases/mongodb/docker-compose.yml
+  
+  # Message Streaming
+  - ./messaging/kafka/docker-compose.yml
+  - ./messaging/zookeeper/docker-compose.yml
+  
+  # Storage
+  - ./storage/minio/docker-compose.yml
+  
+  # LLM Services
+  - ./llm/ollama/docker-compose.yml
+  
+  # Observability
+  - ./observability/prometheus/docker-compose.yml
+  - ./observability/grafana/docker-compose.yml
+  - ./observability/jaeger/docker-compose.yml
+  
+  # Backup & Utilities
+  - ./backup/docker-compose.yml
+
+services:
+  # ===================
+  # LOAD BALANCER
+  # ===================
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: lms-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/ssl:/etc/ssl:ro
+      - ./nginx/rate-limits.conf:/etc/nginx/rate-limits.conf:ro
+    depends_on:
+      - api-gateway
+    networks:
+      - lms-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ===================
+  # APPLICATION SERVICES
+  # ===================
+  api-gateway:
+    image: lms/api-gateway:latest
+    container_name: lms-api-gateway
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - PORT=3000
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - POSTGRES_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgresql:5432/${POSTGRES_DB}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis-master:6379/0
+      - JWT_SECRET=${JWT_SECRET}
+      - USER_SERVICE_URL=http://user-service:3001
+      - COURSE_SERVICE_URL=http://course-service:3002
+      - AUTH_SERVICE_URL=http://auth-service:3003
+      - FILE_SERVICE_URL=http://file-service:3004
+      - SEARCH_SERVICE_URL=http://search-service:3005
+    depends_on:
+      - postgresql
+      - redis-master
+    networks:
+      - lms-network
+      - lms-internal
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  auth-service:
+    image: lms/auth-service:latest
+    container_name: lms-auth-service
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - PORT=3003
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - POSTGRES_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgresql:5432/${POSTGRES_DB}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis-master:6379/1
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_EXPIRY=${JWT_EXPIRY:-3600}
+      - REFRESH_TOKEN_EXPIRY=${REFRESH_TOKEN_EXPIRY:-604800}
+      - BCRYPT_ROUNDS=${BCRYPT_ROUNDS:-12}
+    depends_on:
+      - postgresql
+      - redis-master
+    networks:
+      - lms-internal
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  user-service:
+    image: lms/user-service:latest
+    container_name: lms-user-service
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - PORT=3001
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - POSTGRES_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgresql:5432/${POSTGRES_DB}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis-master:6379/2
+      - KAFKA_BROKERS=${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
+    depends_on:
+      - postgresql
+      - redis-master
+      - kafka-1
+    networks:
+      - lms-internal
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  course-service:
+    image: lms/course-service:latest
+    container_name: lms-course-service
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - PORT=3002
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - POSTGRES_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgresql:5432/${POSTGRES_DB}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis-master:6379/3
+      - KAFKA_BROKERS=${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
+    depends_on:
+      - postgresql
+      - redis-master
+      - kafka-1
+    networks:
+      - lms-internal
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  file-service:
+    image: lms/file-service:latest
+    container_name: lms-file-service
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - PORT=3004
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - POSTGRES_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgresql:5432/${POSTGRES_DB}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis-master:6379/4
+      - MINIO_ENDPOINT=http://minio:9000
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
+      - MINIO_BUCKET=${MINIO_BUCKET:-lms-files}
+      - STORAGE_TYPE=${STORAGE_TYPE:-minio}
+    depends_on:
+      - postgresql
+      - redis-master
+      - minio
+    networks:
+      - lms-internal
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3004/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  analytics-service:
+    image: lms/analytics-service:latest
+    container_name: lms-analytics-service
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - PORT=3007
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - CLICKHOUSE_HOST=http://clickhouse:8123
+      - CLICKHOUSE_DATABASE=${CLICKHOUSE_DATABASE:-analytics}
+      - CLICKHOUSE_USERNAME=${CLICKHOUSE_USERNAME:-default}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD}
+      - KAFKA_BROKERS=${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
+    depends_on:
+      - clickhouse
+      - kafka-1
+    networks:
+      - lms-internal
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3007/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  content-ingestion-service:
+    image: lms/content-ingestion-service:latest
+    container_name: lms-content-ingestion-service
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - PORT=3008
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - MONGODB_URI=mongodb://${MONGODB_USERNAME}:${MONGODB_PASSWORD}@mongodb:27017/${MONGODB_DATABASE}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis-master:6379/7
+      - KAFKA_BROKERS=${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
+    depends_on:
+      - mongodb
+      - redis-master
+      - kafka-1
+    networks:
+      - lms-internal
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3008/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  llm-gateway:
+    image: lms/llm-gateway:latest
+    container_name: lms-llm-gateway
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - PORT=3009
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis-master:6379/8
+      - KAFKA_BROKERS=${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
+      - OLLAMA_HOST=${OLLAMA_HOST:-ollama:11434}
+    depends_on:
+      - redis-master
+      - kafka-1
+      - ollama
+    networks:
+      - lms-internal
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3009/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  llm-worker:
+    image: lms/llm-worker:latest
+    container_name: lms-llm-worker
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis-master:6379/9
+      - KAFKA_BROKERS=${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
+      - OLLAMA_HOST=${OLLAMA_HOST:-ollama:11434}
+      - LLM_MODEL=${LLM_MODEL:-llama2}
+      - LLM_TEMPERATURE=${LLM_TEMPERATURE:-0.7}
+      - LLM_MAX_TOKENS=${LLM_MAX_TOKENS:-2048}
+    depends_on:
+      - redis-master
+      - kafka-1
+      - ollama
+    networks:
+      - lms-internal
+    restart: unless-stopped
+
+  # ===================
+  # DATABASES
+  # ===================
+  postgresql:
+    image: postgres:15-alpine
+    container_name: lms-postgresql
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-lms_db}
+      - POSTGRES_USER=${POSTGRES_USER:-lms_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+    networks:
+      - lms-internal
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-lms_user} -d ${POSTGRES_DB:-lms_db}"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf"]
+
+  # Redis Cluster Setup
+  redis-master:
+    image: redis:7-alpine
+    container_name: lms-redis-master
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+    volumes:
+      - redis_data:/data
+      - ./redis/redis.conf:/etc/redis/redis.conf:ro
+    networks:
+      - lms-internal
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    command: ["redis-server", "/etc/redis/redis.conf", "--requirepass", "${REDIS_PASSWORD}"]
+
+  redis-replica-1:
+    image: redis:7-alpine
+    container_name: lms-redis-replica-1
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+    volumes:
+      - redis_replica_1_data:/data
+      - ./redis/redis-replica.conf:/etc/redis/redis.conf:ro
+    depends_on:
+      - redis-master
+    networks:
+      - lms-internal
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    command: ["redis-server", "/etc/redis/redis.conf", "--requirepass", "${REDIS_PASSWORD}", "--replicaof", "redis-master", "6379"]
+
+  redis-replica-2:
+    image: redis:7-alpine
+    container_name: lms-redis-replica-2
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+    volumes:
+      - redis_replica_2_data:/data
+      - ./redis/redis-replica.conf:/etc/redis/redis.conf:ro
+    depends_on:
+      - redis-master
+    networks:
+      - lms-internal
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    command: ["redis-server", "/etc/redis/redis.conf", "--requirepass", "${REDIS_PASSWORD}", "--replicaof", "redis-master", "6379"]
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    container_name: lms-elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=true
+      - ELASTIC_PASSWORD=${ELASTICSEARCH_PASSWORD}
+      - "ES_JAVA_OPTS=-Xms1g -Xmx1g"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+      - ./elasticsearch/elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml:ro
+    networks:
+      - lms-internal
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s --cacert config/certs/http_ca.crt https://localhost:9200 | grep -q 'missing authentication credentials'"]
+      interval: 30s
+      timeout: 10s
+      retries: 120
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:23.11-alpine
+    container_name: lms-clickhouse
+    environment:
+      - CLICKHOUSE_DB=${CLICKHOUSE_DATABASE:-analytics}
+      - CLICKHOUSE_USER=${CLICKHOUSE_USERNAME:-default}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD}
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./clickhouse/config.xml:/etc/clickhouse-server/config.xml:ro
+      - ./clickhouse/users.xml:/etc/clickhouse-server/users.xml:ro
+    networks:
+      - lms-internal
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8123/ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  mongodb:
+    image: mongo:6.0
+    container_name: lms-mongodb
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGODB_USERNAME:-mongo_user}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGODB_PASSWORD}
+      - MONGO_INITDB_DATABASE=${MONGODB_DATABASE:-content_db}
+    volumes:
+      - mongodb_data:/data/db
+      - ./mongodb/mongod.conf:/etc/mongod.conf:ro
+      - ./mongodb/init.js:/docker-entrypoint-initdb.d/init.js:ro
+    networks:
+      - lms-internal
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    command: ["mongod", "--config", "/etc/mongod.conf"]
+
+  # ===================
+  # MESSAGE STREAMING
+  # ===================
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    container_name: lms-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+    networks:
+      - lms-internal
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  kafka-1:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: lms-kafka-1
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-1:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_LOG_SEGMENT_BYTES: 1073741824
+      KAFKA_NUM_PARTITIONS: 6
+    volumes:
+      - kafka_1_data:/var/lib/kafka/data
+    networks:
+      - lms-internal
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  kafka-2:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: lms-kafka-2
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 2
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-2:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_LOG_SEGMENT_BYTES: 1073741824
+      KAFKA_NUM_PARTITIONS: 6
+    volumes:
+      - kafka_2_data:/var/lib/kafka/data
+    networks:
+      - lms-internal
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  kafka-3:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: lms-kafka-3
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 3
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-3:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_LOG_SEGMENT_BYTES: 1073741824
+      KAFKA_NUM_PARTITIONS: 6
+    volumes:
+      - kafka_3_data:/var/lib/kafka/data
+    networks:
+      - lms-internal
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ===================
+  # STORAGE
+  # ===================
+  minio:
+    image: minio/minio:latest
+    container_name: lms-minio
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ACCESS_KEY}
+      - MINIO_ROOT_PASSWORD=${MINIO_SECRET_KEY}
+    volumes:
+      - minio_data:/data
+    networks:
+      - lms-internal
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    command: server /data --console-address ":9001"
+
+  # ===================
+  # LLM SERVICE
+  # ===================
+  ollama:
+    image: ollama/ollama:latest
+    container_name: lms-ollama
+    volumes:
+      - ./ollama:/root/.ollama
+    networks:
+      - lms-internal
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 60s
+      timeout: 30s
+      retries: 3
+
+  # ===================
+  # OBSERVABILITY
+  # ===================
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: lms-prometheus
+    volumes:
+      - prometheus_data:/prometheus
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/rules:/etc/prometheus/rules:ro
+    networks:
+      - lms-internal
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+
+  grafana:
+    image: grafana/grafana:10.2.0
+    container_name: lms-grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+    networks:
+      - lms-internal
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.51
+    container_name: lms-jaeger
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+      - SPAN_STORAGE_TYPE=elasticsearch
+      - ES_SERVER_URLS=http://elasticsearch:9200
+      - ES_USERNAME=${ELASTICSEARCH_USERNAME:-elastic}
+      - ES_PASSWORD=${ELASTICSEARCH_PASSWORD}
+    volumes:
+      - jaeger_data:/tmp
+    depends_on:
+      - elasticsearch
+    networks:
+      - lms-internal
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:14269/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ===================
+  # BACKUP SERVICE
+  # ===================
+  backup-service:
+    image: alpine:latest
+    container_name: lms-backup-service
+    volumes:
+      - ./backup/scripts:/scripts:ro
+      - backup_data:/backups
+      - postgres_data:/postgres_data:ro
+      - mongodb_data:/mongodb_data:ro
+      - elasticsearch_data:/elasticsearch_data:ro
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-lms_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB:-lms_db}
+      - MONGODB_USERNAME=${MONGODB_USERNAME:-mongo_user}
+      - MONGODB_PASSWORD=${MONGODB_PASSWORD}
+      - BACKUP_RETENTION_DAYS=30
+    depends_on:
+      - postgresql
+      - mongodb
+      - elasticsearch
+    networks:
+      - lms-internal
+    restart: unless-stopped
+    command: crond -f
+    entrypoint: ["/scripts/backup-entrypoint.sh"]

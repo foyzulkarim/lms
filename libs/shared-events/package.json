@@ -1,0 +1,5 @@
+{
+  "name": "@lms/shared-events",
+  "version": "1.0.0",
+  "description": "Shared event handling utilities"
+}

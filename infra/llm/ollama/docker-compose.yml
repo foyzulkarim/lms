@@ -1,0 +1,26 @@
+# Ollama LLM Service
+
+version: '3.8'
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: lms-ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+      - OLLAMA_ORIGINS=*
+    volumes:
+      - ./llm/ollama/models:/root/.ollama
+      - ./llm/ollama/config:/etc/ollama:ro
+    networks:
+      - lms-internal
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 60s
+      timeout: 30s
+      retries: 3
+    labels:
+      - "lms.service.type=llm"
+      - "lms.service.name=ollama"
+      - "lms.service.description=Local LLM inference engine"

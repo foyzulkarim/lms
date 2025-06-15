@@ -1,0 +1,165 @@
+# Search Service
+# Full-text and semantic search service with RAG capabilities
+
+version: '3.8'
+
+services:
+  search-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: ${BUILD_TARGET:-production}
+    image: lms/search-service:${VERSION:-latest}
+    container_name: lms-search-service
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - PORT=3005
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      
+      # Database connections
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgresql:5432/${POSTGRES_DB}
+      - VECTOR_DB_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgresql:5432/${POSTGRES_DB}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis-master:6379/5
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - REDIS_DB=5
+      
+      # Database pool configuration
+      - DB_POOL_MIN=${SEARCH_DB_POOL_MIN:-2}
+      - DB_POOL_MAX=${SEARCH_DB_POOL_MAX:-10}
+      
+      # Elasticsearch Configuration
+      - ELASTICSEARCH_URL=${ELASTICSEARCH_URL:-http://elasticsearch:9200}
+      - ELASTICSEARCH_USERNAME=${ELASTICSEARCH_USERNAME}
+      - ELASTICSEARCH_PASSWORD=${ELASTICSEARCH_PASSWORD}
+      - ELASTICSEARCH_INDEX_PREFIX=${ELASTICSEARCH_INDEX_PREFIX:-lms}
+      - ELASTICSEARCH_MAX_RESULT_WINDOW=${ELASTICSEARCH_MAX_RESULT_WINDOW:-10000}
+      - ELASTICSEARCH_TIMEOUT=${ELASTICSEARCH_TIMEOUT:-30000}
+      
+      # Vector Search Configuration
+      - VECTOR_DIMENSIONS=${VECTOR_DIMENSIONS:-1536}
+      - SIMILARITY_THRESHOLD=${SIMILARITY_THRESHOLD:-0.7}
+      - MAX_VECTOR_RESULTS=${MAX_VECTOR_RESULTS:-100}
+      - VECTOR_SEARCH_TIMEOUT=${VECTOR_SEARCH_TIMEOUT:-5000}
+      
+      # LLM Integration
+      - LLM_GATEWAY_URL=${LLM_GATEWAY_URL:-http://llm-gateway:3010}
+      - DEFAULT_EMBEDDING_MODEL=${DEFAULT_EMBEDDING_MODEL:-text-embedding-ada-002}
+      - DEFAULT_RAG_MODEL=${DEFAULT_RAG_MODEL:-gpt-4}
+      - RAG_MAX_CONTEXTS=${RAG_MAX_CONTEXTS:-10}
+      - RAG_CONTEXT_MAX_TOKENS=${RAG_CONTEXT_MAX_TOKENS:-4000}
+      - RAG_TEMPERATURE=${RAG_TEMPERATURE:-0.3}
+      - RAG_MAX_TOKENS=${RAG_MAX_TOKENS:-1000}
+      
+      # Search Configuration
+      - DEFAULT_SEARCH_LIMIT=${DEFAULT_SEARCH_LIMIT:-20}
+      - MAX_SEARCH_LIMIT=${MAX_SEARCH_LIMIT:-100}
+      - SEARCH_TIMEOUT_MS=${SEARCH_TIMEOUT_MS:-5000}
+      - ENABLE_QUERY_EXPANSION=${ENABLE_QUERY_EXPANSION:-true}
+      - ENABLE_SPELL_CHECK=${ENABLE_SPELL_CHECK:-true}
+      - MIN_QUERY_LENGTH=${MIN_QUERY_LENGTH:-2}
+      
+      # Caching Configuration
+      - CACHE_SEARCH_RESULTS=${CACHE_SEARCH_RESULTS:-true}
+      - SEARCH_CACHE_TTL=${SEARCH_CACHE_TTL:-300}
+      - SUGGESTIONS_CACHE_TTL=${SUGGESTIONS_CACHE_TTL:-3600}
+      - RAG_CACHE_TTL=${RAG_CACHE_TTL:-1800}
+      - VECTOR_CACHE_TTL=${VECTOR_CACHE_TTL:-600}
+      
+      # Security Configuration
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-24h}
+      
+      # Rate Limiting
+      - RATE_LIMIT_MAX=${SEARCH_RATE_LIMIT_MAX:-100}
+      - RATE_LIMIT_WINDOW=${SEARCH_RATE_LIMIT_WINDOW:-60000}
+      - RAG_RATE_LIMIT_MAX=${RAG_RATE_LIMIT_MAX:-20}
+      - RAG_RATE_LIMIT_WINDOW=${RAG_RATE_LIMIT_WINDOW:-60000}
+      
+      # Service URLs (internal communication)
+      - CONTENT_INGESTION_SERVICE_URL=http://content-ingestion-service:3009
+      - FILE_SERVICE_URL=http://file-service:3004
+      - COURSE_SERVICE_URL=http://course-service:3002
+      
+      # Event Bus Configuration (Kafka)
+      - KAFKA_BROKERS=${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
+      - KAFKA_CLIENT_ID=search-service
+      - KAFKA_GROUP_ID=search-service-group
+      
+      # Indexing Configuration
+      - INDEX_BATCH_SIZE=${INDEX_BATCH_SIZE:-100}
+      - INDEX_CONCURRENCY=${INDEX_CONCURRENCY:-5}
+      - AUTO_INDEX_ENABLED=${AUTO_INDEX_ENABLED:-true}
+      - INDEX_RETRY_ATTEMPTS=${INDEX_RETRY_ATTEMPTS:-3}
+      - INDEX_RETRY_DELAY=${INDEX_RETRY_DELAY:-5000}
+      
+      # Analytics Configuration
+      - ENABLE_SEARCH_ANALYTICS=${ENABLE_SEARCH_ANALYTICS:-true}
+      - ANALYTICS_BATCH_SIZE=${ANALYTICS_BATCH_SIZE:-50}
+      - ANALYTICS_FLUSH_INTERVAL=${ANALYTICS_FLUSH_INTERVAL:-30000}
+      
+      # Health Check Configuration
+      - HEALTH_CHECK_TIMEOUT=${HEALTH_CHECK_TIMEOUT:-5000}
+      - HEALTH_CHECK_INTERVAL=${HEALTH_CHECK_INTERVAL:-30000}
+      
+      # Monitoring Configuration
+      - ENABLE_METRICS=${ENABLE_METRICS:-true}
+      - METRICS_PORT=${METRICS_PORT:-9090}
+      
+      # Feature Flags
+      - ENABLE_RAG_SEARCH=${ENABLE_RAG_SEARCH:-true}
+      - ENABLE_SEMANTIC_SEARCH=${ENABLE_SEMANTIC_SEARCH:-true}
+      - ENABLE_HYBRID_SEARCH=${ENABLE_HYBRID_SEARCH:-true}
+      - ENABLE_AUTOCOMPLETE=${ENABLE_AUTOCOMPLETE:-true}
+      - ENABLE_FACETED_SEARCH=${ENABLE_FACETED_SEARCH:-true}
+      - ENABLE_QUERY_SUGGESTIONS=${ENABLE_QUERY_SUGGESTIONS:-true}
+      
+      # Monitoring
+      - PROMETHEUS_ENDPOINT=http://prometheus:9090
+      - JAEGER_ENDPOINT=http://jaeger:14268/api/traces
+    
+    volumes:
+      # Service logs
+      - search_logs:/app/logs
+      # Search indices cache (if using local storage)
+      - search_indices:/app/indices
+    
+    depends_on:
+      - postgresql
+      - redis-master
+      - elasticsearch
+    
+    networks:
+      - lms-internal
+    
+    restart: unless-stopped
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3005/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    
+    labels:
+      - "lms.service.type=application"
+      - "lms.service.name=search-service"
+      - "lms.service.description=Full-text and semantic search service with RAG capabilities"
+      - "lms.service.version=${VERSION:-latest}"
+
+# ===================
+# VOLUMES
+# ===================
+volumes:
+  search_logs:
+    driver: local
+    labels:
+      - "lms.volume.type=logs"
+      - "lms.volume.service=search-service"
+      - "lms.volume.description=Search service logs"
+  
+  search_indices:
+    driver: local
+    labels:
+      - "lms.volume.type=indices"
+      - "lms.volume.service=search-service"
+      - "lms.volume.description=Search indices cache and temporary storage"

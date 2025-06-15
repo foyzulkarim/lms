@@ -1,0 +1,328 @@
+# Course Service Docker Compose Configuration
+# Handles course management, content organization, and learning progress tracking
+
+version: '3.8'
+
+services:
+  # ===================
+  # MAIN COURSE SERVICE
+  # ===================
+  course-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    image: lms/course-service:latest
+    container_name: lms-course-service
+    environment:
+      # Server Configuration
+      - NODE_ENV=${NODE_ENV:-production}
+      - PORT=3002
+      - HOST=0.0.0.0
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - LOG_FORMAT=${LOG_FORMAT:-json}
+      
+      # Database Configuration
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgresql:5432/${POSTGRES_DB}
+      - DB_HOST=postgresql
+      - DB_PORT=5432
+      - DB_NAME=${POSTGRES_DB}
+      - DB_USER=${POSTGRES_USER}
+      - DB_PASSWORD=${POSTGRES_PASSWORD}
+      - DB_POOL_MIN=${COURSE_DB_POOL_MIN:-2}
+      - DB_POOL_MAX=${COURSE_DB_POOL_MAX:-10}
+      
+      # Redis Configuration
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis-master:6379/3
+      - REDIS_HOST=redis-master
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - REDIS_DB=3
+      
+      # Event Streaming
+      - KAFKA_BROKERS=${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
+      - KAFKA_CLIENT_ID=course-service
+      - KAFKA_GROUP_ID=course-service-group
+      
+      # JWT Configuration
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-24h}
+      
+      # External Service URLs
+      - AUTH_SERVICE_URL=http://auth-service:3003
+      - USER_SERVICE_URL=http://user-service:3001
+      - FILE_SERVICE_URL=http://file-service:3004
+      - SEARCH_SERVICE_URL=http://search-service:3005
+      - ANALYTICS_SERVICE_URL=http://analytics-service:3007
+      
+      # Course Configuration
+      - DEFAULT_COURSE_LANGUAGE=${DEFAULT_COURSE_LANGUAGE:-en}
+      - MAX_MODULES_PER_COURSE=${MAX_MODULES_PER_COURSE:-50}
+      - MAX_LESSONS_PER_MODULE=${MAX_LESSONS_PER_MODULE:-100}
+      - COURSE_SLUG_MAX_LENGTH=${COURSE_SLUG_MAX_LENGTH:-100}
+      - FEATURED_COURSES_LIMIT=${FEATURED_COURSES_LIMIT:-10}
+      - POPULAR_COURSES_LIMIT=${POPULAR_COURSES_LIMIT:-20}
+      
+      # Content Processing
+      - MAX_CONTENT_SIZE=${MAX_COURSE_CONTENT_SIZE:-10485760}
+      - ALLOWED_VIDEO_FORMATS=${ALLOWED_VIDEO_FORMATS:-mp4,webm,ogg}
+      - ALLOWED_DOCUMENT_FORMATS=${ALLOWED_DOCUMENT_FORMATS:-pdf,doc,docx,ppt,pptx}
+      - CONTENT_CACHE_TTL=${CONTENT_CACHE_TTL:-3600}
+      
+      # File Upload Configuration
+      - UPLOAD_DIR=${COURSE_UPLOAD_DIR:-uploads}
+      - MAX_FILE_SIZE=${MAX_COURSE_FILE_SIZE:-52428800}
+      - ALLOWED_IMAGE_FORMATS=${ALLOWED_IMAGE_FORMATS:-jpg,jpeg,png,gif,webp}
+      
+      # Cache TTL Settings (in seconds)
+      - COURSE_CACHE_TTL=${COURSE_CACHE_TTL:-3600}
+      - COURSE_LIST_CACHE_TTL=${COURSE_LIST_CACHE_TTL:-1800}
+      - LESSON_CONTENT_CACHE_TTL=${LESSON_CONTENT_CACHE_TTL:-7200}
+      - CATEGORY_CACHE_TTL=${CATEGORY_CACHE_TTL:-86400}
+      
+      # Search Configuration
+      - SEARCH_RESULTS_LIMIT=${SEARCH_RESULTS_LIMIT:-50}
+      - SEARCH_CACHE_TTL=${SEARCH_CACHE_TTL:-300}
+      
+      # Rate Limiting
+      - RATE_LIMIT_MAX=${COURSE_RATE_LIMIT_MAX:-200}
+      - RATE_LIMIT_WINDOW=${COURSE_RATE_LIMIT_WINDOW:-60000}
+      
+      # CORS Configuration
+      - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost:3000}
+      - CORS_CREDENTIALS=${CORS_CREDENTIALS:-true}
+      
+      # Analytics Configuration
+      - ANALYTICS_BATCH_SIZE=${ANALYTICS_BATCH_SIZE:-100}
+      - ANALYTICS_FLUSH_INTERVAL=${ANALYTICS_FLUSH_INTERVAL:-30000}
+      - ENABLE_COURSE_ANALYTICS=${ENABLE_COURSE_ANALYTICS:-true}
+      
+      # Feature Flags
+      - ENABLE_COURSE_REVIEWS=${ENABLE_COURSE_REVIEWS:-true}
+      - ENABLE_COURSE_CERTIFICATES=${ENABLE_COURSE_CERTIFICATES:-true}
+      - ENABLE_COURSE_PREREQUISITES=${ENABLE_COURSE_PREREQUISITES:-true}
+      - ENABLE_COURSE_VERSIONING=${ENABLE_COURSE_VERSIONING:-false}
+      - ENABLE_DRAFT_AUTOSAVE=${ENABLE_DRAFT_AUTOSAVE:-true}
+      
+      # Monitoring
+      - ENABLE_METRICS=${ENABLE_METRICS:-true}
+      - METRICS_PORT=9464
+      - JAEGER_ENDPOINT=${JAEGER_ENDPOINT:-http://jaeger:14268/api/traces}
+      
+      # Performance Settings
+      - ENABLE_QUERY_CACHE=${ENABLE_QUERY_CACHE:-true}
+      - ENABLE_RESPONSE_COMPRESSION=${ENABLE_RESPONSE_COMPRESSION:-true}
+      - MAX_CONCURRENT_REQUESTS=${MAX_CONCURRENT_REQUESTS:-1000}
+    
+    volumes:
+      # Course content uploads
+      - course_uploads:/app/uploads
+      # Course thumbnails and banners
+      - course_media:/app/media
+      # Course export/import workspace
+      - course_workspace:/app/workspace
+      # Application logs
+      - course_logs:/app/logs
+      # Database migration files
+      - ./migrations:/app/migrations:ro
+      # Configuration files
+      - ./config:/app/config:ro
+    
+    depends_on:
+      - postgresql
+      - redis-master
+      - kafka-1
+    
+    networks:
+      - lms-internal
+    
+    restart: unless-stopped
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+    labels:
+      - "lms.service.type=application"
+      - "lms.service.name=course-service"
+      - "lms.service.description=Course management and content organization service"
+      - "lms.service.port=3002"
+
+  # ===================
+  # COURSE ANALYTICS WORKER (Optional)
+  # ===================
+  course-analytics-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+      target: analytics-worker
+    image: lms/course-analytics-worker:latest
+    container_name: lms-course-analytics-worker
+    environment:
+      # Worker Configuration
+      - NODE_ENV=${NODE_ENV:-production}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - WORKER_TYPE=analytics
+      - WORKER_CONCURRENCY=${COURSE_ANALYTICS_WORKER_CONCURRENCY:-3}
+      
+      # Database Configuration
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgresql:5432/${POSTGRES_DB}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis-master:6379/3
+      
+      # Event Streaming
+      - KAFKA_BROKERS=${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
+      - KAFKA_GROUP_ID=course-analytics-worker-group
+      
+      # Analytics Configuration
+      - ANALYTICS_BATCH_SIZE=${ANALYTICS_BATCH_SIZE:-100}
+      - ANALYTICS_FLUSH_INTERVAL=${ANALYTICS_FLUSH_INTERVAL:-30000}
+      - PROGRESS_CALCULATION_INTERVAL=${PROGRESS_CALCULATION_INTERVAL:-300000}
+      - RATING_CALCULATION_INTERVAL=${RATING_CALCULATION_INTERVAL:-600000}
+      
+      # External Services
+      - ANALYTICS_SERVICE_URL=http://analytics-service:3007
+      - SEARCH_SERVICE_URL=http://search-service:3005
+    
+    volumes:
+      - course_analytics_cache:/app/analytics-cache
+      - course_logs:/app/logs
+    
+    depends_on:
+      - postgresql
+      - redis-master
+      - kafka-1
+      - course-service
+    
+    networks:
+      - lms-internal
+    
+    restart: unless-stopped
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3012/health"]
+      interval: 45s
+      timeout: 15s
+      retries: 3
+      start_period: 90s
+    
+    profiles:
+      - analytics
+    
+    labels:
+      - "lms.service.type=worker"
+      - "lms.service.name=course-analytics-worker"
+      - "lms.service.description=Course analytics and progress calculation worker"
+
+  # ===================
+  # COURSE SEARCH INDEXER (Optional)
+  # ===================
+  course-search-indexer:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+      target: search-indexer
+    image: lms/course-search-indexer:latest
+    container_name: lms-course-search-indexer
+    environment:
+      # Worker Configuration
+      - NODE_ENV=${NODE_ENV:-production}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - WORKER_TYPE=search-indexer
+      - WORKER_CONCURRENCY=${COURSE_SEARCH_INDEXER_CONCURRENCY:-2}
+      
+      # Database Configuration
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgresql:5432/${POSTGRES_DB}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis-master:6379/3
+      
+      # Event Streaming
+      - KAFKA_BROKERS=${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
+      - KAFKA_GROUP_ID=course-search-indexer-group
+      
+      # Search Configuration
+      - SEARCH_SERVICE_URL=http://search-service:3005
+      - ELASTICSEARCH_HOST=http://elasticsearch:9200
+      - ELASTICSEARCH_USERNAME=${ELASTICSEARCH_USERNAME:-elastic}
+      - ELASTICSEARCH_PASSWORD=${ELASTICSEARCH_PASSWORD}
+      - SEARCH_INDEX_BATCH_SIZE=${SEARCH_INDEX_BATCH_SIZE:-50}
+      - SEARCH_INDEX_TIMEOUT_MS=${SEARCH_INDEX_TIMEOUT_MS:-30000}
+    
+    volumes:
+      - course_search_cache:/app/search-cache
+      - course_logs:/app/logs
+    
+    depends_on:
+      - postgresql
+      - redis-master
+      - kafka-1
+      - elasticsearch
+      - search-service
+      - course-service
+    
+    networks:
+      - lms-internal
+    
+    restart: unless-stopped
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3013/health"]
+      interval: 45s
+      timeout: 15s
+      retries: 3
+      start_period: 90s
+    
+    profiles:
+      - search
+    
+    labels:
+      - "lms.service.type=worker"
+      - "lms.service.name=course-search-indexer"
+      - "lms.service.description=Course search indexing worker"
+
+# ===================
+# VOLUMES
+# ===================
+volumes:
+  course_uploads:
+    driver: local
+    labels:
+      - "lms.volume.type=uploads"
+      - "lms.volume.service=course-service"
+      - "lms.volume.description=Course content uploads and attachments"
+  
+  course_media:
+    driver: local
+    labels:
+      - "lms.volume.type=media"
+      - "lms.volume.service=course-service"
+      - "lms.volume.description=Course thumbnails, banners, and media files"
+  
+  course_workspace:
+    driver: local
+    labels:
+      - "lms.volume.type=workspace"
+      - "lms.volume.service=course-service"
+      - "lms.volume.description=Course export/import and processing workspace"
+  
+  course_logs:
+    driver: local
+    labels:
+      - "lms.volume.type=logs"
+      - "lms.volume.service=course-service"
+      - "lms.volume.description=Course service application logs"
+  
+  course_analytics_cache:
+    driver: local
+    labels:
+      - "lms.volume.type=cache"
+      - "lms.volume.service=course-service"
+      - "lms.volume.description=Course analytics calculation cache"
+  
+  course_search_cache:
+    driver: local
+    labels:
+      - "lms.volume.type=cache"
+      - "lms.volume.service=course-service"
+      - "lms.volume.description=Course search indexing cache"

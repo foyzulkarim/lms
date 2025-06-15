@@ -1,0 +1,29 @@
+# MongoDB Document Database Service
+
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:6.0
+    container_name: lms-mongodb
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGODB_USERNAME:-mongo_user}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGODB_PASSWORD}
+      - MONGO_INITDB_DATABASE=${MONGODB_DATABASE:-content_db}
+    volumes:
+      - mongodb_data:/data/db
+      - ./databases/mongodb/mongod.conf:/etc/mongod.conf:ro
+      - ./databases/mongodb/init.js:/docker-entrypoint-initdb.d/init.js:ro
+    networks:
+      - lms-internal
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    command: ["mongod", "--config", "/etc/mongod.conf"]
+    labels:
+      - "lms.service.type=document"
+      - "lms.service.name=mongodb"
+      - "lms.service.description=Document database for content ingestion"

@@ -1,0 +1,129 @@
+# Multi-stage Dockerfile for File Service Workers
+# Specialized workers for file processing, cleanup, and maintenance
+
+# ===================
+# BASE WORKER STAGE
+# ===================
+FROM node:20-alpine AS worker-base
+
+# Install system dependencies for file processing
+RUN apk add --no-cache \
+    # Basic utilities
+    curl \
+    wget \
+    file \
+    # Image processing
+    imagemagick \
+    imagemagick-dev \
+    # Video processing
+    ffmpeg \
+    ffmpeg-dev \
+    # Document processing
+    poppler-utils \
+    ghostscript \
+    # Archive handling
+    unzip \
+    p7zip \
+    tar \
+    gzip \
+    # Build tools
+    make \
+    g++ \
+    python3 \
+    py3-pip \
+    # Security and scanning
+    clamav-daemon \
+    clamav-libunrar \
+    # Additional tools
+    exiftool \
+    mediainfo
+
+# Install Python packages for advanced processing
+RUN pip3 install --no-cache-dir \
+    Pillow \
+    opencv-python-headless \
+    numpy
+
+# Create app directory
+WORKDIR /app
+
+# Create non-root user
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S fileuser -u 1001
+
+# Create necessary directories
+RUN mkdir -p /app/uploads /app/temp /app/processing /app/logs /app/quarantine \
+             /app/ffmpeg-cache /app/imagemagick-cache && \
+    chown -R fileuser:nodejs /app
+
+# ===================
+# PROCESSING WORKER
+# ===================
+FROM worker-base AS processing-worker
+
+# Copy package files and install dependencies
+COPY package*.json ./
+RUN npm ci --only=production && npm cache clean --force
+
+# Copy worker source code
+COPY --chown=fileuser:nodejs src/ ./src/
+COPY --chown=fileuser:nodejs workers/ ./workers/
+COPY --chown=fileuser:nodejs config/ ./config/
+
+# Switch to non-root user
+USER fileuser
+
+# Expose health check port
+EXPOSE 3014
+
+# Health check
+HEALTHCHECK --interval=45s --timeout=15s --start-period=120s --retries=3 \
+    CMD curl -f http://localhost:3014/health || exit 1
+
+# Worker command
+CMD ["node", "workers/processing-worker.js"]
+
+# ===================
+# CLEANUP WORKER
+# ===================
+FROM worker-base AS cleanup-worker
+
+# Copy package files and install dependencies
+COPY package*.json ./
+RUN npm ci --only=production && npm cache clean --force
+
+# Copy worker source code
+COPY --chown=fileuser:nodejs src/ ./src/
+COPY --chown=fileuser:nodejs workers/ ./workers/
+COPY --chown=fileuser:nodejs config/ ./config/
+
+# Switch to non-root user
+USER fileuser
+
+# Expose health check port
+EXPOSE 3015
+
+# Health check
+HEALTHCHECK --interval=60s --timeout=15s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:3015/health || exit 1
+
+# Worker command
+CMD ["node", "workers/cleanup-worker.js"]
+
+# ===================
+# DEVELOPMENT WORKER
+# ===================
+FROM worker-base AS development
+
+# Install development dependencies
+COPY package*.json ./
+RUN npm ci && npm cache clean --force
+
+# Copy source code
+COPY --chown=fileuser:nodejs . .
+
+# Switch to non-root user
+USER fileuser
+
+# Development command
+CMD ["npm", "run", "worker:dev"]

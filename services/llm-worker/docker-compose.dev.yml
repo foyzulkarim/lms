@@ -1,0 +1,74 @@
+# LLM Worker Service - Development Override
+# This file provides development-specific configurations for the LLM Worker service
+
+version: '3.8'
+
+services:
+  llm-worker:
+    build:
+      target: development
+    environment:
+      # Development environment
+      - NODE_ENV=development
+      - LOG_LEVEL=debug
+      - LOG_FORMAT=simple
+      
+      # Development worker configuration
+      - WORKER_CONCURRENCY=2
+      - WORKER_BATCH_SIZE=5
+      - WORKER_TIMEOUT=120000
+      
+      # Development model configuration
+      - MODEL_PRELOAD_ENABLED=false
+      - MODEL_MEMORY_THRESHOLD=0.9
+      - MEMORY_CLEANUP_INTERVAL=30000
+      
+      # Development performance settings
+      - ENABLE_PERFORMANCE_MONITORING=true
+      - PERFORMANCE_SAMPLE_RATE=1.0
+      - ENABLE_DEBUG_MODE=true
+      
+      # Development circuit breaker (more lenient)
+      - CIRCUIT_BREAKER_THRESHOLD=10
+      - CIRCUIT_BREAKER_TIMEOUT=30000
+      - CIRCUIT_BREAKER_RESET_TIMEOUT=60000
+      
+      # Development error handling
+      - ERROR_RETRY_ATTEMPTS=1
+      - ERROR_RETRY_DELAY=1000
+      
+      # Development security (less strict)
+      - ENABLE_REQUEST_VALIDATION=true
+      - ENABLE_CONTENT_FILTERING=false
+      
+      # Development monitoring
+      - METRICS_ENABLED=true
+      - ENABLE_REQUEST_LOGGING=true
+    
+    volumes:
+      # Hot reloading for development
+      - ./src:/app/src:ro
+      - ./config:/app/config:ro
+      # Development logs
+      - ./logs:/app/logs
+    
+    ports:
+      # Expose health check port for development
+      - "3008:3008"
+    
+    # Development resource limits (lower)
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+    
+    # Faster health checks for development
+    healthcheck:
+      interval: 15s
+      timeout: 5s
+      retries: 2
+      start_period: 30s

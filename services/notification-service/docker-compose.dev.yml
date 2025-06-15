@@ -1,0 +1,92 @@
+# Notification Service - Development Override
+# This file provides development-specific configurations for the Notification Service
+
+version: '3.8'
+
+services:
+  notification-service:
+    build:
+      target: development
+    environment:
+      # Development environment
+      - NODE_ENV=development
+      - LOG_LEVEL=debug
+      
+      # Development database configuration
+      - DB_POOL_MIN=1
+      - DB_POOL_MAX=5
+      - LOG_SQL_QUERIES=true
+      
+      # Development queue configuration
+      - QUEUE_CONCURRENCY=3
+      - BATCH_SIZE=10
+      - BULK_THROTTLE_MS=500
+      
+      # Development rate limiting (more lenient)
+      - EMAIL_RATE_LIMIT=10000
+      - PUSH_RATE_LIMIT=5000
+      - GLOBAL_RATE_LIMIT=100000
+      
+      # Development template configuration
+      - TEMPLATE_CACHE_TTL=60
+      - TEMPLATE_RENDER_TIMEOUT=10000
+      
+      # Development analytics
+      - ANALYTICS_RETENTION_DAYS=7
+      
+      # Development feature flags
+      - ENABLE_SWAGGER=true
+      - MOCK_EMAIL_DISPATCHER=${MOCK_EMAIL_DISPATCHER:-false}
+      - MOCK_PUSH_SERVICE=${MOCK_PUSH_SERVICE:-false}
+      
+      # Development monitoring
+      - HEALTH_CHECK_INTERVAL=15000
+      - ENABLE_REQUEST_LOGGING=true
+      
+      # Development notification limits (lower for testing)
+      - MAX_RECIPIENTS_PER_NOTIFICATION=100
+      - MAX_BULK_SIZE=1000
+      - MAX_TEMPLATE_VARIABLES=50
+      
+      # Development external service timeouts (shorter)
+      - EMAIL_DISPATCHER_TIMEOUT=10000
+      - KAFKA_RETRY_ATTEMPTS=2
+      - KAFKA_RETRY_DELAY=500
+    
+    volumes:
+      # Hot reloading for development
+      - ./src:/app/src:ro
+      - ./migrations:/app/migrations:ro
+      - ./package.json:/app/package.json:ro
+      - ./tsconfig.json:/app/tsconfig.json:ro
+      - ./knexfile.ts:/app/knexfile.ts:ro
+      # Development logs
+      - ./logs:/app/logs
+      # Development templates
+      - ./templates:/app/templates
+    
+    ports:
+      # Expose service port for development
+      - "3006:3006"
+      # Expose metrics port for development
+      - "9096:9090"
+    
+    # Development resource limits (lower)
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    
+    # Faster health checks for development
+    healthcheck:
+      interval: 15s
+      timeout: 5s
+      retries: 2
+      start_period: 20s
+    
+    # Development command (with hot reloading)
+    command: npm run dev

@@ -1,0 +1,350 @@
+# Content Ingestion Service Docker Compose Configuration
+# Handles content processing, text extraction, embedding generation, and vector storage
+
+version: '3.8'
+
+services:
+  # ===================
+  # MAIN CONTENT INGESTION SERVICE
+  # ===================
+  content-ingestion-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    image: lms/content-ingestion-service:latest
+    container_name: lms-content-ingestion-service
+    environment:
+      # Server Configuration
+      - NODE_ENV=${NODE_ENV:-production}
+      - PORT=3008
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      
+      # Database Configuration
+      - POSTGRES_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgresql:5432/${POSTGRES_DB}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis-master:6379/7
+      - MONGODB_URI=mongodb://${MONGODB_USERNAME}:${MONGODB_PASSWORD}@mongodb:27017/${MONGODB_DATABASE}
+      
+      # Vector Database (using PostgreSQL with pgvector)
+      - VECTOR_DB_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgresql:5432/${POSTGRES_DB}
+      
+      # External Service URLs
+      - LLM_GATEWAY_URL=http://llm-gateway:3009
+      - FILE_SERVICE_URL=http://file-service:3004
+      - SEARCH_SERVICE_URL=http://search-service:3005
+      
+      # Event Streaming
+      - KAFKA_BROKERS=${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
+      - KAFKA_CLIENT_ID=content-ingestion-service
+      - KAFKA_GROUP_ID=content-ingestion-group
+      
+      # Content Processing Configuration
+      - CHUNK_SIZE=${CONTENT_CHUNK_SIZE:-500}
+      - CHUNK_OVERLAP=${CONTENT_CHUNK_OVERLAP:-50}
+      - MAX_CONCURRENT_JOBS=${CONTENT_MAX_CONCURRENT_JOBS:-5}
+      - BATCH_SIZE=${CONTENT_BATCH_SIZE:-10}
+      - EMBEDDING_MODEL=${CONTENT_EMBEDDING_MODEL:-text-embedding-ada-002}
+      
+      # Content Extraction Settings
+      - ENABLE_OCR=${ENABLE_OCR:-true}
+      - ENABLE_SPEECH_TO_TEXT=${ENABLE_SPEECH_TO_TEXT:-true}
+      - WHISPER_MODEL=${WHISPER_MODEL:-base}
+      - TESSERACT_LANG=${TESSERACT_LANG:-eng}
+      - EXTRACTION_TIMEOUT_MS=${EXTRACTION_TIMEOUT_MS:-300000}
+      
+      # External API Keys
+      - YOUTUBE_API_KEY=${YOUTUBE_API_KEY}
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      
+      # Job Queue Configuration
+      - JOB_CONCURRENCY=${CONTENT_JOB_CONCURRENCY:-10}
+      - JOB_RETRY_ATTEMPTS=${CONTENT_JOB_RETRY_ATTEMPTS:-3}
+      - JOB_RETRY_DELAY=${CONTENT_JOB_RETRY_DELAY:-5000}
+      - JOB_TIMEOUT=${CONTENT_JOB_TIMEOUT:-600000}
+      
+      # Processing Limits
+      - MAX_FILE_SIZE_MB=${MAX_CONTENT_FILE_SIZE_MB:-100}
+      - MAX_CONTENT_LENGTH=${MAX_CONTENT_LENGTH:-1000000}
+      - MIN_CHUNK_SIZE=${MIN_CONTENT_CHUNK_SIZE:-50}
+      - MAX_CHUNK_SIZE=${MAX_CONTENT_CHUNK_SIZE:-1000}
+      
+      # Feature Flags
+      - ENABLE_AUTO_INGESTION=${ENABLE_AUTO_CONTENT_INGESTION:-true}
+      - ENABLE_CONTENT_VERSIONING=${ENABLE_CONTENT_VERSIONING:-true}
+      - ENABLE_DUPLICATE_DETECTION=${ENABLE_DUPLICATE_DETECTION:-true}
+      
+      # Monitoring
+      - ENABLE_METRICS=${ENABLE_METRICS:-true}
+      - METRICS_PORT=9464
+      - JAEGER_ENDPOINT=${JAEGER_ENDPOINT:-http://jaeger:14268/api/traces}
+    
+    volumes:
+      # Content processing workspace
+      - content_processing_workspace:/app/workspace
+      # Temporary files for processing
+      - content_temp_files:/tmp/content-processing
+      # Model cache for ML operations
+      - content_models_cache:/app/models
+      # Processing logs
+      - content_processing_logs:/app/logs
+    
+    depends_on:
+      - postgresql
+      - redis-master
+      - mongodb
+      - kafka-1
+      - llm-gateway
+    
+    networks:
+      - lms-internal
+    
+    restart: unless-stopped
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3008/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+    labels:
+      - "lms.service.type=application"
+      - "lms.service.name=content-ingestion-service"
+      - "lms.service.description=Content processing and ingestion service"
+
+  # ===================
+  # CONTENT PROCESSING WORKERS
+  # ===================
+  content-extraction-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+      target: extraction-worker
+    image: lms/content-extraction-worker:latest
+    container_name: lms-content-extraction-worker
+    environment:
+      # Worker Configuration
+      - NODE_ENV=${NODE_ENV:-production}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - WORKER_TYPE=extraction
+      - WORKER_CONCURRENCY=${EXTRACTION_WORKER_CONCURRENCY:-3}
+      
+      # Database Configuration
+      - POSTGRES_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgresql:5432/${POSTGRES_DB}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis-master:6379/7
+      
+      # External Services
+      - FILE_SERVICE_URL=http://file-service:3004
+      
+      # Processing Configuration
+      - ENABLE_OCR=${ENABLE_OCR:-true}
+      - ENABLE_SPEECH_TO_TEXT=${ENABLE_SPEECH_TO_TEXT:-true}
+      - WHISPER_MODEL=${WHISPER_MODEL:-base}
+      - TESSERACT_LANG=${TESSERACT_LANG:-eng}
+      - EXTRACTION_TIMEOUT_MS=${EXTRACTION_TIMEOUT_MS:-300000}
+      
+      # Resource Limits
+      - MAX_MEMORY_USAGE_MB=${EXTRACTION_MAX_MEMORY_MB:-2048}
+      - MAX_CPU_USAGE_PERCENT=${EXTRACTION_MAX_CPU_PERCENT:-80}
+    
+    volumes:
+      # Shared workspace with main service
+      - content_processing_workspace:/app/workspace
+      - content_temp_files:/tmp/content-processing
+      - content_models_cache:/app/models
+      # OCR and ML model data
+      - tesseract_data:/usr/share/tesseract-ocr/4.00/tessdata
+      - whisper_models:/app/whisper-models
+    
+    depends_on:
+      - postgresql
+      - redis-master
+      - content-ingestion-service
+    
+    networks:
+      - lms-internal
+    
+    restart: unless-stopped
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3009/health"]
+      interval: 45s
+      timeout: 15s
+      retries: 3
+      start_period: 120s
+    
+    labels:
+      - "lms.service.type=worker"
+      - "lms.service.name=content-extraction-worker"
+      - "lms.service.description=Content extraction and processing worker"
+
+  content-embedding-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+      target: embedding-worker
+    image: lms/content-embedding-worker:latest
+    container_name: lms-content-embedding-worker
+    environment:
+      # Worker Configuration
+      - NODE_ENV=${NODE_ENV:-production}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - WORKER_TYPE=embedding
+      - WORKER_CONCURRENCY=${EMBEDDING_WORKER_CONCURRENCY:-2}
+      
+      # Database Configuration
+      - POSTGRES_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgresql:5432/${POSTGRES_DB}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis-master:6379/7
+      - VECTOR_DB_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgresql:5432/${POSTGRES_DB}
+      
+      # LLM Gateway
+      - LLM_GATEWAY_URL=http://llm-gateway:3009
+      
+      # Embedding Configuration
+      - EMBEDDING_MODEL=${CONTENT_EMBEDDING_MODEL:-text-embedding-ada-002}
+      - EMBEDDING_BATCH_SIZE=${EMBEDDING_BATCH_SIZE:-10}
+      - EMBEDDING_TIMEOUT_MS=${EMBEDDING_TIMEOUT_MS:-60000}
+      - EMBEDDING_RETRY_ATTEMPTS=${EMBEDDING_RETRY_ATTEMPTS:-3}
+      
+      # Vector Database Configuration
+      - VECTOR_INDEX_TYPE=${VECTOR_INDEX_TYPE:-hnsw}
+      - VECTOR_SIMILARITY_METRIC=${VECTOR_SIMILARITY_METRIC:-cosine}
+      - VECTOR_DIMENSIONS=${VECTOR_DIMENSIONS:-1536}
+    
+    volumes:
+      - content_processing_workspace:/app/workspace
+      - content_temp_files:/tmp/content-processing
+      - vector_index_cache:/app/vector-cache
+    
+    depends_on:
+      - postgresql
+      - redis-master
+      - llm-gateway
+      - content-ingestion-service
+    
+    networks:
+      - lms-internal
+    
+    restart: unless-stopped
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3010/health"]
+      interval: 45s
+      timeout: 15s
+      retries: 3
+      start_period: 120s
+    
+    labels:
+      - "lms.service.type=worker"
+      - "lms.service.name=content-embedding-worker"
+      - "lms.service.description=Content embedding generation worker"
+
+  content-indexing-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+      target: indexing-worker
+    image: lms/content-indexing-worker:latest
+    container_name: lms-content-indexing-worker
+    environment:
+      # Worker Configuration
+      - NODE_ENV=${NODE_ENV:-production}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - WORKER_TYPE=indexing
+      - WORKER_CONCURRENCY=${INDEXING_WORKER_CONCURRENCY:-2}
+      
+      # Database Configuration
+      - POSTGRES_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgresql:5432/${POSTGRES_DB}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis-master:6379/7
+      
+      # Search Service
+      - SEARCH_SERVICE_URL=http://search-service:3005
+      - ELASTICSEARCH_HOST=http://elasticsearch:9200
+      - ELASTICSEARCH_USERNAME=${ELASTICSEARCH_USERNAME:-elastic}
+      - ELASTICSEARCH_PASSWORD=${ELASTICSEARCH_PASSWORD}
+      
+      # Indexing Configuration
+      - INDEX_BATCH_SIZE=${INDEX_BATCH_SIZE:-50}
+      - INDEX_TIMEOUT_MS=${INDEX_TIMEOUT_MS:-30000}
+      - INDEX_RETRY_ATTEMPTS=${INDEX_RETRY_ATTEMPTS:-3}
+    
+    volumes:
+      - content_processing_workspace:/app/workspace
+      - content_temp_files:/tmp/content-processing
+    
+    depends_on:
+      - postgresql
+      - redis-master
+      - search-service
+      - elasticsearch
+      - content-ingestion-service
+    
+    networks:
+      - lms-internal
+    
+    restart: unless-stopped
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3011/health"]
+      interval: 45s
+      timeout: 15s
+      retries: 3
+      start_period: 90s
+    
+    labels:
+      - "lms.service.type=worker"
+      - "lms.service.name=content-indexing-worker"
+      - "lms.service.description=Content search indexing worker"
+
+# ===================
+# VOLUMES
+# ===================
+volumes:
+  content_processing_workspace:
+    driver: local
+    labels:
+      - "lms.volume.type=workspace"
+      - "lms.volume.service=content-ingestion"
+      - "lms.volume.description=Content processing workspace"
+  
+  content_temp_files:
+    driver: local
+    labels:
+      - "lms.volume.type=temporary"
+      - "lms.volume.service=content-ingestion"
+      - "lms.volume.description=Temporary files for content processing"
+  
+  content_models_cache:
+    driver: local
+    labels:
+      - "lms.volume.type=cache"
+      - "lms.volume.service=content-ingestion"
+      - "lms.volume.description=ML models cache for content processing"
+  
+  content_processing_logs:
+    driver: local
+    labels:
+      - "lms.volume.type=logs"
+      - "lms.volume.service=content-ingestion"
+      - "lms.volume.description=Content processing logs"
+  
+  tesseract_data:
+    driver: local
+    labels:
+      - "lms.volume.type=data"
+      - "lms.volume.service=content-ingestion"
+      - "lms.volume.description=Tesseract OCR language data"
+  
+  whisper_models:
+    driver: local
+    labels:
+      - "lms.volume.type=models"
+      - "lms.volume.service=content-ingestion"
+      - "lms.volume.description=Whisper speech-to-text models"
+  
+  vector_index_cache:
+    driver: local
+    labels:
+      - "lms.volume.type=cache"
+      - "lms.volume.service=content-ingestion"
+      - "lms.volume.description=Vector index cache for embeddings"
